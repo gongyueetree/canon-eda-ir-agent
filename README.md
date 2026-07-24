@@ -91,12 +91,29 @@ PCB 只使用源文件显式 Net ID 建立 Physical Net。跨文档 Net Link 必
 
 Net IR 的 `endpoints` 与 `segmentIds` 保存具体对象 ID，而不只是计数。界面可展开每条网络，查看 Symbol Pin、Label、Pad、Track、Via、Zone 以及跨文档链接。PCB IR 根据顶层及 Footprint 内的 `Edge.Cuts` 计算外接尺寸、边界框、板厚与闭合状态；开放板框只报告外接尺寸并产生诊断，不猜测面积或周长。
 
+## IR 保存与下游使用
+
+解析完成后，左侧 `IR DOMAINS` 可直接切换 Project、Schematic、PCB、Part 和 Net IR。每个领域页面都支持复制或下载独立 JSON；`IR JSON` 页还提供：
+
+- 完整 Canonical Bundle JSON
+- 包含五类独立 IR、完整 Bundle 与读取示例的 ZIP 数据包
+- 数据库保存后的完整 Bundle API 与分领域 API
+
+独立文件采用统一信封结构：`schema`、`schemaVersion`、`irType`、Bundle/Project 元数据、`entityCount` 和 `data`。Net IR 的 `data` 同时包含 `nets` 与 `crossDocumentLinks`，便于下游系统解析网络端点及原理图到 PCB 的链接。
+
+下载不依赖数据库。配置 `DATABASE_URL` 并点击“保存 Bundle”后，可通过 API 集成到 PLM、BOM、DFM、审查和搜索服务。
+
 ## API
 
 ```text
 GET  /api/projects        数据库状态与最近工程
 POST /api/projects        保存 Canonical IR Bundle
 GET  /api/projects/{id}   读取最新 Bundle
+GET  /api/projects/{id}?domain=project    读取 Project IR
+GET  /api/projects/{id}?domain=schematic  读取 Schematic IR
+GET  /api/projects/{id}?domain=pcb        读取 PCB IR
+GET  /api/projects/{id}?domain=part       读取 Part IR
+GET  /api/projects/{id}?domain=net        读取 Net IR 与 Cross-document Links
 ```
 
 完整规格中的 Source Package API、任务队列、取消/重试、事件流、对象存储、Diff 和 Adapter Registry 是后续生产阶段，不在此 Web MVP 中伪装实现。

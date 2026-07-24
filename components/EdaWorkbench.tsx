@@ -11,6 +11,7 @@ import {
   CircuitBoard,
   Clock3,
   Code2,
+  Copy,
   Database,
   FileCode2,
   FileJson2,
@@ -27,12 +28,14 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { strToU8, zipSync } from "fflate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createDemoFiles, filesToInputAssets } from "../lib/eda/archive";
+import { createIrDomainExport, IR_DOMAIN_KEYS, type IrDomainKey } from "../lib/eda/export";
 import { parseEdaProject } from "../lib/eda/parse";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
 
-type ResultTab = "overview" | "inventory" | "schematic" | "pcb" | "parts" | "nets" | "diagnostics" | "json";
+type ResultTab = "overview" | "inventory" | "project" | "schematic" | "pcb" | "parts" | "nets" | "diagnostics" | "json";
 type AppView = "workspace" | "history" | "adapters";
 type SavedProject = {
   id: string;
@@ -61,6 +64,19 @@ const SUPPORT_MATRIX = [
   { format: "Altium", level: "仅结构", tone: "planned", detail: "PrjPcb / DsnWrk / OutJob + CFB 原样保留" },
 ];
 
+const DOMAIN_NAV: Array<{
+  domain: IrDomainKey;
+  tab: ResultTab;
+  label: string;
+  description: string;
+}> = [
+  { domain: "project", tab: "project", label: "Project IR", description: "工程身份、文档图、设置与扩展记录" },
+  { domain: "schematic", tab: "schematic", label: "Schematic IR", description: "Sheet、Symbol Pin、Wire、Junction 与 Label" },
+  { domain: "pcb", tab: "pcb", label: "PCB IR", description: "Layer、Footprint、Pad、Track、Via、Zone 与板框" },
+  { domain: "part", tab: "parts", label: "Part IR", description: "器件身份、变体、封装及 Pin ↔ Pad 映射" },
+  { domain: "net", tab: "nets", label: "Net IR", description: "逻辑/物理网络、端点、Segment 与跨文档链接" },
+];
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -82,14 +98,100 @@ function statusLabel(status: string): string {
   return labels[status] ?? status;
 }
 
-function downloadBundle(bundle: CanonicalIrBundle) {
-  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+function safeProjectName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-").replace(/^-+|-+$/g, "") || "eda-project";
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${bundle.project.name.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]+/g, "-")}-canonical-ir.json`;
+  anchor.download = fileName;
   anchor.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function downloadJson(value: unknown, fileName: string) {
+  downloadBlob(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }), fileName);
+}
+
+function downloadBundle(bundle: CanonicalIrBundle) {
+  downloadJson(bundle, `${safeProjectName(bundle.project.name)}-canonical-ir.json`);
+}
+
+function downloadDomain(bundle: CanonicalIrBundle, domain: IrDomainKey) {
+  downloadJson(
+    createIrDomainExport(bundle, domain),
+    `${safeProjectName(bundle.project.name)}-${domain}-ir.json`,
+  );
+}
+
+function packageReadme(bundle: CanonicalIrBundle): string {
+  return `# ${bundle.project.name} · CANON EDA IR
+
+This package contains deterministic, read-only Canonical IR generated from the uploaded EDA project.
+
+## Files
+
+- project-ir.json — project identity, document graph, settings and opaque extensions
+- schematic-ir.json — sheets, pins, wires, junctions, labels and no-connects
+- pcb-ir.json — board layers, outline, dimensions, footprints, pads, tracks, vias and zones
+- part-ir.json — logical parts, variants, footprints and pin-to-pad mappings
+- net-ir.json — logical/physical nets, concrete endpoints and cross-document links
+- canonical-bundle.json — complete bundle including inventory, diagnostics, fidelity and source map
+
+Every domain file contains metadata plus a \`data\` field. Net IR keeps both \`data.nets\` and
+\`data.crossDocumentLinks\` so downstream tools can resolve schematic-to-PCB relationships.
+
+JavaScript:
+
+\`\`\`js
+const netIr = await fetch("./net-ir.json").then((response) => response.json());
+for (const net of netIr.data.nets) {
+  console.log(net.canonicalName, net.endpoints);
+}
+\`\`\`
+
+Python:
+
+\`\`\`python
+import json
+with open("pcb-ir.json", encoding="utf-8") as file:
+    pcb_ir = json.load(file)
+print(pcb_ir["data"][0].get("physicalDimensions"))
+\`\`\`
+`;
+}
+
+function downloadIrPackage(bundle: CanonicalIrBundle) {
+  const files: Record<string, Uint8Array> = {
+    "README.md": strToU8(packageReadme(bundle)),
+    "canonical-bundle.json": strToU8(JSON.stringify(bundle, null, 2)),
+  };
+  for (const domain of IR_DOMAIN_KEYS) {
+    files[`${domain}-ir.json`] = strToU8(JSON.stringify(createIrDomainExport(bundle, domain), null, 2));
+  }
+  const archive = zipSync(files, { level: 6 });
+  downloadBlob(
+    new Blob([archive.buffer as ArrayBuffer], { type: "application/zip" }),
+    `${safeProjectName(bundle.project.name)}-ir-package.zip`,
+  );
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("COPY_FAILED");
 }
 
 function MetricCard({ label, value, detail, accent }: { label: string; value: string | number; detail: string; accent?: boolean }) {
@@ -142,6 +244,8 @@ export default function EdaWorkbench() {
   const [dbConfigured, setDbConfigured] = useState<boolean | null>(null);
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [persistedProjectId, setPersistedProjectId] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [expandedNetId, setExpandedNetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +288,8 @@ export default function EdaWorkbench() {
     setView("workspace");
     setActiveTab("overview");
     setSaveState("idle");
+    setPersistedProjectId(null);
+    setCopyFeedback(null);
     setExpandedNetId(null);
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -219,6 +325,8 @@ export default function EdaWorkbench() {
     setParseStage(0);
     setError(null);
     setSaveState("idle");
+    setPersistedProjectId(null);
+    setCopyFeedback(null);
     setExpandedNetId(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (directoryInputRef.current) directoryInputRef.current.value = "";
@@ -233,8 +341,10 @@ export default function EdaWorkbench() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(bundle),
       });
-      if (!response.ok) throw new Error((await response.json()).message ?? "保存失败");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? "保存失败");
       setSaveState("saved");
+      setPersistedProjectId(data.projectId ?? bundle.project.id);
       await refreshProjects();
     } catch {
       setSaveState("error");
@@ -249,6 +359,9 @@ export default function EdaWorkbench() {
       setBundle(data.bundle as CanonicalIrBundle);
       setView("workspace");
       setActiveTab("overview");
+      setSaveState("saved");
+      setPersistedProjectId(id);
+      setCopyFeedback(null);
       setExpandedNetId(null);
     } catch {
       setError("无法读取数据库中的 IR Bundle。");
@@ -296,10 +409,42 @@ export default function EdaWorkbench() {
     endpoint.targetId?.slice(-8) ||
     endpoint.type;
 
+  const copyValue = async (value: unknown, feedbackKey: string) => {
+    try {
+      const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+      await writeClipboard(text);
+      setCopyFeedback(feedbackKey);
+      window.setTimeout(() => setCopyFeedback((current) => current === feedbackKey ? null : current), 1800);
+    } catch {
+      setCopyFeedback("error");
+    }
+  };
+
+  const copyApiPath = (path: string, feedbackKey: string) =>
+    copyValue(new URL(path, window.location.origin).toString(), feedbackKey);
+
+  const openDomain = (tab: ResultTab) => {
+    if (!bundle) return;
+    setView("workspace");
+    setActiveTab(tab);
+  };
+
+  const activeDomain = DOMAIN_NAV.find((item) => item.tab === activeTab);
+  const persistedApiBase = persistedProjectId ? `/api/projects/${encodeURIComponent(persistedProjectId)}` : null;
+  const domainCount = (domain: IrDomainKey) => {
+    if (!bundle) return 0;
+    if (domain === "project") return 1;
+    if (domain === "schematic") return bundle.schematics.length;
+    if (domain === "pcb") return bundle.pcbs.length;
+    if (domain === "part") return bundle.parts.length;
+    return bundle.nets.length;
+  };
+
   const resultTabs: Array<{ id: ResultTab; label: string; count?: number }> = bundle
     ? [
         { id: "overview", label: "概览" },
         { id: "inventory", label: "源文件", count: bundle.inventory.length },
+        { id: "project", label: "Project IR", count: 1 },
         { id: "schematic", label: "原理图", count: bundle.schematics.length },
         { id: "pcb", label: "PCB", count: bundle.pcbs.length },
         { id: "parts", label: "器件", count: bundle.parts.length },
@@ -320,11 +465,22 @@ export default function EdaWorkbench() {
         </nav>
         <div className="nav-caption">IR DOMAINS</div>
         <div className="domain-list">
-          <div><FileJson2 size={16} />Project IR</div>
-          <div><Zap size={16} />Schematic IR</div>
-          <div><CircuitBoard size={16} />PCB IR</div>
-          <div><PackageCheck size={16} />Part IR</div>
-          <div><Network size={16} />Net IR</div>
+          {DOMAIN_NAV.map((item) => (
+            <button
+              type="button"
+              className={bundle && view === "workspace" && activeTab === item.tab ? "active" : ""}
+              disabled={!bundle}
+              aria-label={`打开 ${item.label}`}
+              aria-current={bundle && view === "workspace" && activeTab === item.tab ? "page" : undefined}
+              title={bundle ? `查看并导出 ${item.label}` : "请先解析或打开一个工程"}
+              onClick={() => openDomain(item.tab)}
+              key={item.domain}
+            >
+              {item.domain === "project" ? <FileJson2 size={16} /> : item.domain === "schematic" ? <Zap size={16} /> : item.domain === "pcb" ? <CircuitBoard size={16} /> : item.domain === "part" ? <PackageCheck size={16} /> : <Network size={16} />}
+              <span>{item.label}</span>
+              {bundle && <b>{domainCount(item.domain)}</b>}
+            </button>
+          ))}
         </div>
         <div className="sidebar-footer">
           <div className={`db-state ${dbConfigured ? "online" : ""}`}><Database size={15} /><span>{dbConfigured ? "PostgreSQL 已连接" : "本地只读模式"}</span></div>
@@ -395,6 +551,22 @@ export default function EdaWorkbench() {
               </div>
 
               <div className="tab-content">
+                {activeDomain && (
+                  <div className="ir-domain-toolbar">
+                    <div>
+                      <span>{activeDomain.label}</span>
+                      <p>{activeDomain.description}</p>
+                    </div>
+                    <div>
+                      <button type="button" onClick={() => void copyValue(createIrDomainExport(bundle, activeDomain.domain), `domain-${activeDomain.domain}`)}>
+                        {copyFeedback === `domain-${activeDomain.domain}` ? <Check size={14} /> : <Copy size={14} />}
+                        {copyFeedback === `domain-${activeDomain.domain}` ? "已复制" : "复制 JSON"}
+                      </button>
+                      <button type="button" className="primary" onClick={() => downloadDomain(bundle, activeDomain.domain)}><ArrowDownToLine size={14} /> 下载 {activeDomain.label}</button>
+                    </div>
+                  </div>
+                )}
+
                 {activeTab === "overview" && (
                   <>
                     <div className="metrics-grid">
@@ -434,6 +606,28 @@ export default function EdaWorkbench() {
                     <div className="panel-title"><div><FolderOpen size={18} /><strong>Source Asset Inventory</strong></div><span>SHA-256 内容寻址</span></div>
                     <div className="data-table"><table><thead><tr><th>文件</th><th>角色</th><th>检测格式</th><th>大小</th><th>SHA-256</th><th>安全状态</th></tr></thead><tbody>{bundle.inventory.map((asset) => <tr key={asset.id}><td><FileCode2 size={15} /><strong>{asset.relativePath}</strong></td><td>{asset.entryRole}</td><td>{formatName(asset.detectedFormat)}</td><td>{formatBytes(asset.sizeBytes)}</td><td><code>{asset.sha256.slice(0, 12)}…</code></td><td><span className="accepted"><Check size={12} /> accepted</span></td></tr>)}</tbody></table></div>
                   </article>
+                )}
+
+                {activeTab === "project" && (
+                  <div className="project-ir-layout">
+                    <article className="panel project-ir-card">
+                      <div className="panel-title"><div><FileJson2 size={18} /><strong>Project IR</strong></div><span>Version {bundle.project.projectIrVersion}</span></div>
+                      <div className="project-ir-fields">
+                        <div><small>PROJECT ID</small><code>{bundle.project.id}</code></div>
+                        <div><small>SOURCE FORMAT</small><strong>{formatName(bundle.project.sourceFormat)}</strong></div>
+                        <div><small>SOURCE VERSION</small><strong>{bundle.project.sourceFormatVersion ?? "未声明"}</strong></div>
+                        <div><small>TOOL VERSION</small><strong>{bundle.project.sourceToolVersion ?? "未声明"}</strong></div>
+                      </div>
+                    </article>
+                    <article className="panel table-panel">
+                      <div className="panel-title"><div><GitCompareArrows size={18} /><strong>Document Graph</strong></div><span>{bundle.project.documentGraph.length} documents</span></div>
+                      <div className="data-table"><table><thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Relation</th></tr></thead><tbody>{bundle.project.documentGraph.map((document) => <tr key={document.id}><td><code>{document.id}</code></td><td>{document.type}</td><td><strong>{document.name}</strong></td><td>{document.relation}</td></tr>)}</tbody></table></div>
+                    </article>
+                    <article className="panel project-metadata-card">
+                      <div className="panel-title"><div><Code2 size={18} /><strong>Project metadata</strong></div><span>{bundle.project.opaqueExtensions.length} opaque extensions</span></div>
+                      <div className="metadata-columns"><div><small>SETTINGS</small><pre>{JSON.stringify(bundle.project.settings, null, 2)}</pre></div><div><small>OPAQUE EXTENSIONS</small><pre>{JSON.stringify(bundle.project.opaqueExtensions, null, 2)}</pre></div></div>
+                    </article>
+                  </div>
                 )}
 
                 {activeTab === "schematic" && (
@@ -524,7 +718,66 @@ export default function EdaWorkbench() {
                 )}
 
                 {activeTab === "json" && (
-                  <article className="panel json-panel"><div className="panel-title"><div><Code2 size={18} /><strong>Canonical IR Bundle</strong></div><button onClick={() => downloadBundle(bundle)}><ArrowDownToLine size={14} /> 下载</button></div><pre>{JSON.stringify(bundle, null, 2)}</pre></article>
+                  <div className="export-center">
+                    <article className="panel export-hero">
+                      <div>
+                        <div className="eyebrow">PORTABLE OUTPUT</div>
+                        <h2>保存并使用 Canonical IR</h2>
+                        <p>下载不依赖数据库。ZIP 包包含五类独立 IR、完整 Bundle 和可直接运行的 JavaScript / Python 读取示例。</p>
+                      </div>
+                      <div className="export-hero-actions">
+                        <button type="button" onClick={() => downloadBundle(bundle)}><FileJson2 size={16} /> 完整 Bundle JSON</button>
+                        <button type="button" className="primary" onClick={() => downloadIrPackage(bundle)}><Archive size={16} /> 下载 IR 数据包 ZIP</button>
+                      </div>
+                    </article>
+
+                    <div className="domain-export-grid">
+                      {DOMAIN_NAV.map((item) => (
+                        <article className="panel domain-export-card" key={item.domain}>
+                          <div className={`export-domain-icon ${item.domain}`}>
+                            {item.domain === "project" ? <FileJson2 size={19} /> : item.domain === "schematic" ? <Zap size={19} /> : item.domain === "pcb" ? <CircuitBoard size={19} /> : item.domain === "part" ? <PackageCheck size={19} /> : <Network size={19} />}
+                          </div>
+                          <div><strong>{item.label}</strong><span>{domainCount(item.domain)} entities</span></div>
+                          <p>{item.description}</p>
+                          <div className="domain-export-actions">
+                            <button type="button" onClick={() => void copyValue(createIrDomainExport(bundle, item.domain), `export-${item.domain}`)}>
+                              {copyFeedback === `export-${item.domain}` ? <Check size={13} /> : <Copy size={13} />}
+                              {copyFeedback === `export-${item.domain}` ? "已复制" : "复制"}
+                            </button>
+                            <button type="button" onClick={() => downloadDomain(bundle, item.domain)}><ArrowDownToLine size={13} /> JSON</button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    <article className="panel api-usage-card">
+                      <div className="panel-title"><div><Database size={18} /><strong>数据库与 API 使用</strong></div><span>{persistedApiBase ? "API ready" : "Save required"}</span></div>
+                      <div className="api-usage-content">
+                        {persistedApiBase ? (
+                          <>
+                            <p>该 Bundle 已保存。下游程序可读取完整 Bundle，也可通过 <code>domain</code> 参数只读取一种 IR。</p>
+                            <div className="api-endpoint-list">
+                              <button type="button" onClick={() => void copyApiPath(persistedApiBase, "api-bundle")}><code>GET {persistedApiBase}</code>{copyFeedback === "api-bundle" ? <Check size={13} /> : <Copy size={13} />}</button>
+                              {DOMAIN_NAV.map((item) => {
+                                const path = `${persistedApiBase}?domain=${item.domain}`;
+                                return <button type="button" onClick={() => void copyApiPath(path, `api-${item.domain}`)} key={item.domain}><code>GET {path}</code>{copyFeedback === `api-${item.domain}` ? <Check size={13} /> : <Copy size={13} />}</button>;
+                              })}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="api-save-hint">
+                            <Database size={23} />
+                            <div><strong>下载文件现在即可使用</strong><p>{dbConfigured ? "如需稳定 API 地址，请点击页面右上角“保存 Bundle”。" : "如需在线 API，请先配置 DATABASE_URL；本地 JSON 与 ZIP 导出不受影响。"}</p></div>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+
+                    <article className="panel json-panel">
+                      <div className="panel-title"><div><Code2 size={18} /><strong>Canonical IR Bundle 预览</strong></div><button type="button" onClick={() => void copyValue(bundle, "bundle-json")}>{copyFeedback === "bundle-json" ? <Check size={14} /> : <Copy size={14} />} {copyFeedback === "bundle-json" ? "已复制" : "复制全部"}</button></div>
+                      <pre>{JSON.stringify(bundle, null, 2)}</pre>
+                    </article>
+                  </div>
                 )}
               </div>
             </section>

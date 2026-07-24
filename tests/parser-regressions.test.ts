@@ -2,12 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { zipSync } from "fflate";
 import { createDemoFiles, filesToInputAssets } from "../lib/eda/archive";
+import { createIrDomainExport, IR_DOMAIN_KEYS, isIrDomainKey } from "../lib/eda/export";
 import { parseEdaProject } from "../lib/eda/parse";
+import type { CanonicalIrBundle } from "../lib/eda/types";
 
 async function parseDemo() {
   const intake = await filesToInputAssets(createDemoFiles());
   return parseEdaProject(intake.assets, intake.diagnostics);
 }
+
+test("domain exports are independently portable and Net IR retains concrete links", async () => {
+  const bundle = await parseDemo();
+
+  for (const domain of IR_DOMAIN_KEYS) {
+    const exported = createIrDomainExport(bundle, domain);
+    assert.equal(exported.schema, "canon-eda-ir");
+    assert.equal(exported.schemaVersion, "1.0.0");
+    assert.equal(exported.bundleId, bundle.bundleId);
+    assert.equal(exported.projectId, bundle.project.id);
+    assert.ok(exported.entityCount > 0);
+    assert.doesNotThrow(() => JSON.stringify(exported));
+    assert.equal(isIrDomainKey(domain), true);
+  }
+
+  const netExport = createIrDomainExport(bundle, "net");
+  const netData = netExport.data as {
+    nets: CanonicalIrBundle["nets"];
+    crossDocumentLinks: CanonicalIrBundle["crossDocumentLinks"];
+  };
+  assert.deepEqual(netData.nets, bundle.nets);
+  assert.deepEqual(netData.crossDocumentLinks, bundle.crossDocumentLinks);
+  assert.ok(netData.nets.some((net) => net.endpoints.length > 0));
+  assert.equal(isIrDomainKey("invalid"), false);
+});
 
 test("Edge.Cuts is mechanical board edge, never copper", async () => {
   const bundle = await parseDemo();

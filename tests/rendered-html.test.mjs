@@ -24,7 +24,7 @@ test("server-renders the Canonical EDA IR workbench", async () => {
   assert.match(html, /可验证的统一数据/);
   assert.match(html, /不把工程发送给模型/);
   assert.match(html, /Project IR/);
-  assert.match(html, /KiCad 6–9\+/);
+  assert.match(html, /KiCad 5–9\+/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 

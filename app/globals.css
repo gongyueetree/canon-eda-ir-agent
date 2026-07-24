@@ -208,6 +208,10 @@ td code { color: #718078; font-size: 8px; }
 .pcb-card { padding: 17px; }
 .pcb-card-head { display: grid; grid-template-columns: 42px 1fr auto; gap: 11px; align-items: center; }
 .pcb-card-head > span { font: 8px var(--mono); color: #62756b; background: #eef3ef; padding: 6px 8px; border-radius: 5px; }
+.pcb-dimensions { display: grid; grid-template-columns: 1.2fr .8fr 1.5fr .7fr; gap: 1px; margin-top: 16px; border: 1px solid var(--soft-line); background: var(--soft-line); border-radius: 7px; overflow: hidden; }
+.pcb-dimensions > div { min-width: 0; padding: 11px 12px; background: #f8faf7; }
+.pcb-dimensions small { display: block; color: #8b9690; font: 700 7px var(--mono); letter-spacing: .08em; }
+.pcb-dimensions strong { display: block; margin-top: 5px; color: #29473d; font: 650 10px var(--mono); overflow-wrap: anywhere; }
 .pcb-stats { display: grid; grid-template-columns: repeat(6, 1fr); margin: 16px 0; border: 1px solid var(--soft-line); border-radius: 7px; }
 .pcb-stats span { padding: 11px; color: #8b9690; font-size: 8px; border-right: 1px solid var(--soft-line); }
 .pcb-stats span:last-child { border: 0; }
@@ -225,6 +229,24 @@ td code { color: #718078; font-size: 8px; }
 .net-summary i.physical { background: #426e9d; }
 .net-domain { font: 8px var(--mono); padding: 4px 6px; border-radius: 4px; color: #557424; background: #eff5e6; }
 .net-domain.pcb_physical { color: #42608e; background: #e9eff8; }
+.net-expand { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.net-expand svg { flex: 0 0 auto; transition: transform .16s ease; }
+.net-expand[aria-expanded="true"] svg { transform: rotate(90deg); }
+.net-row:has(.net-expand[aria-expanded="true"]) td { background: #f7faf5; border-bottom-color: transparent; }
+.net-detail-row td { padding: 0 14px 14px 32px; background: #f7faf5; }
+.net-detail { border: 1px solid #dce6d7; border-radius: 7px; background: white; padding: 12px; }
+.net-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.net-detail-heading strong, .cross-link-list > strong { font: 700 9px var(--mono); color: #365145; }
+.net-detail-heading code { color: #89958e; font-size: 7px; }
+.endpoint-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 260px; overflow: auto; }
+.endpoint-chip { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 3px 7px; max-width: 360px; padding: 7px 8px; border: 1px solid #dde5df; border-radius: 6px; background: #fbfcfa; }
+.endpoint-chip small { color: #78857e; font: 700 7px var(--mono); text-transform: uppercase; }
+.endpoint-chip b { min-width: 0; color: #33483f; font: 600 8px var(--mono); overflow-wrap: anywhere; }
+.endpoint-chip code { grid-column: 1 / -1; color: #9aa49e; font-size: 6px; }
+.endpoint-chip.symbol_pin, .endpoint-chip.label { border-color: #dce8bd; background: #f8fbeF; }
+.endpoint-chip.footprint_pad { border-color: #d7e4ef; background: #f6f9fc; }
+.cross-link-list { display: grid; gap: 5px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--soft-line); }
+.cross-link-list span { color: #67766e; font: 8px/1.5 var(--mono); }
 .diagnostic-counts { display: flex; align-items: center; gap: 7px !important; }
 .diagnostic-counts span { padding: 3px 6px; background: #f0f2ef; border-radius: 4px; font-size: 8px; }
 .diagnostic-counts .warning { color: #865f17; background: var(--amber); }
@@ -318,6 +340,7 @@ td code { color: #718078; font-size: 8px; }
   .metric-card { min-height: 100px; padding: 14px; }
   .metric-card strong { font-size: 24px; }
   .object-card { grid-template-columns: 42px 1fr; }
+  .pcb-dimensions { grid-template-columns: 1fr 1fr; }
   .object-stats { grid-column: 1 / -1; }
   .pcb-stats { grid-template-columns: repeat(3, 1fr); }
   .pcb-stats span:nth-child(3) { border-right: 0; }

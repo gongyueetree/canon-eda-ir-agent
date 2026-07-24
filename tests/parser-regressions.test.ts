@@ -19,6 +19,14 @@ test("Edge.Cuts is mechanical board edge, never copper", async () => {
   assert.equal(edgeCuts.side, "both");
   assert.equal(edgeCuts.copper, false);
   assert.equal(layers.filter((layer) => layer.copper).length, 2);
+  assert.deepEqual(bundle.pcbs[0].physicalDimensions, {
+    width: "80",
+    height: "40",
+    thickness: "1.6",
+    unit: "mm",
+    boundingBox: { minX: "10", minY: "10", maxX: "90", maxY: "50" },
+    outlineClosed: true,
+  });
 });
 
 test("all canonical strong references resolve to emitted entities", async () => {
@@ -86,6 +94,9 @@ test("archive intake ignores macOS metadata, local history, and VCS files before
     "LED8x8/.DS_Store": new TextEncoder().encode("Finder metadata"),
     "LED8x8/local.kicad_prl": new TextEncoder().encode("{}"),
     "LED8x8/fp-info-cache": new TextEncoder().encode("cache"),
+    "LED8x8/LED8x8.kicad_pcb-bak": pcb,
+    "LED8x8/LED8x8.sch-bak": schematic,
+    "LED8x8/legacy.bak": schematic,
   });
   const intake = await filesToInputAssets([new File([archive], "LED8x8.zip")]);
   const bundle = await parseEdaProject(intake.assets, intake.diagnostics);
@@ -103,6 +114,143 @@ test("archive intake ignores macOS metadata, local history, and VCS files before
   assert.equal(bundle.parts.length, 2);
   assert.equal(bundle.pcbs[0].footprints.length, 2);
   assert.equal(bundle.summary.errors, 0);
+});
+
+test("KiCad Legacy .sch resolves parts, pins, nets, and cross-document links from the matching .pro", async () => {
+  const encoder = new TextEncoder();
+  const legacyLibrary = `EESchema-LIBRARY Version 2.4
+#encoding utf-8
+DEF Device_R R 0 0 N Y 1 F N
+DRAW
+X ~ 1 -100 0 100 R 50 50 1 1 P
+X ~ 2 100 0 100 L 50 50 1 1 P
+ENDDRAW
+ENDDEF`;
+  const legacySchematic = `EESchema Schematic File Version 4
+LIBS:Fixture-cache
+EELAYER 29 0
+EELAYER END
+$Descr A4 11693 8268
+Sheet 1 1
+Title "Legacy Fixture"
+$EndDescr
+$Comp
+L Device:R R1
+U 1 1 ABCDEF01
+P 1000 1000
+F 0 "R1" H 1000 1050 50  0000 C CNN
+F 1 "10k" H 1000 950 50  0000 C CNN
+F 2 "Resistor_SMD:R_0603_1608Metric" H 1000 1000 50  0001 C CNN
+\t1    1000 1000
+\t1    0    0    -1
+$EndComp
+Wire Wire Line
+\t500 1000 900 1000
+Wire Wire Line
+\t1100 1000 1500 1000
+Text Label 500 1000 2    50   ~ 0
+VIN
+Text Label 1500 1000 0    50   ~ 0
+VOUT
+$EndSCHEMATC`;
+  const sideSchematic = legacySchematic.replace("Legacy Fixture", "Side document").replace(/R1/g, "R2");
+  const pcb = `(kicad_pcb (version 20171130) (host pcbnew 5.1.0)
+    (general (thickness 1))
+    (layers (0 F.Cu signal) (31 B.Cu signal) (44 Edge.Cuts user))
+    (net 0 "") (net 1 VIN) (net 2 VOUT)
+    (module Resistor_SMD:R_0603_1608Metric (layer F.Cu) (at 5 5)
+      (fp_text reference R1 (at 0 -1) (layer F.SilkS))
+      (fp_text value 10k (at 0 1) (layer F.Fab))
+      (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu F.Paste F.Mask) (net 1 VIN))
+      (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu F.Paste F.Mask) (net 2 VOUT)))
+    (gr_rect (start 0 0) (end 10 10) (layer Edge.Cuts) (width 0.1)))`;
+  const archive = zipSync({
+    "Fixture/Fixture.pro": encoder.encode("[eeschema]\nversion=1\n"),
+    "Fixture/Fixture.sch": encoder.encode(legacySchematic),
+    "Fixture/Side.sch": encoder.encode(sideSchematic),
+    "Fixture/Fixture-cache.lib": encoder.encode(legacyLibrary),
+    "Fixture/Fixture.kicad_pcb": encoder.encode(pcb),
+  });
+  const intake = await filesToInputAssets([new File([archive], "Fixture.zip")]);
+  const bundle = await parseEdaProject(intake.assets, intake.diagnostics);
+
+  assert.equal(bundle.schematics.length, 1);
+  assert.equal(bundle.schematics[0].name, "Legacy Fixture");
+  assert.equal(bundle.parts.length, 1);
+  assert.equal(bundle.parts[0].reference, "R1");
+  assert.equal(bundle.schematics[0].pins.length, 2);
+  assert.equal(bundle.summary.logicalNets, 2);
+  assert.equal(bundle.summary.pcbNets, 2);
+  assert.equal(bundle.crossDocumentLinks.filter((link) => link.type === "part_to_footprint" && link.status === "verified").length, 1);
+  assert.equal(bundle.crossDocumentLinks.filter((link) => link.type === "pin_to_pad" && link.status === "verified").length, 2);
+  assert.equal(bundle.crossDocumentLinks.filter((link) => link.type === "schematic_net_to_pcb_net" && link.status === "verified").length, 2);
+  assert.ok(bundle.diagnostics.some((item) => item.code === "LEGACY_SCHEMATIC_NOT_IN_PROJECT"));
+  assert.equal(bundle.summary.errors, 0);
+});
+
+test("footprint Edge.Cuts contribute to closed physical board dimensions", async () => {
+  const encoder = new TextEncoder();
+  const pcb = `(kicad_pcb (version 20171130) (host pcbnew 5.1.0)
+    (general (thickness 1.2))
+    (layers (0 F.Cu signal) (31 B.Cu signal) (44 Edge.Cuts user))
+    (module Connector:Cutout (layer F.Cu) (at 10 5)
+      (fp_text reference J1 (at 0 0) (layer F.SilkS))
+      (fp_text value CUTOUT (at 0 1) (layer F.Fab))
+      (fp_line (start 0 -1) (end -2 -1) (layer Edge.Cuts) (width 0.1))
+      (fp_line (start -2 -1) (end -2 1) (layer Edge.Cuts) (width 0.1))
+      (fp_line (start -2 1) (end 0 1) (layer Edge.Cuts) (width 0.1)))
+    (gr_line (start 0 0) (end 10 0) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 10 0) (end 10 4) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 10 6) (end 10 10) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 10 10) (end 0 10) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 0 10) (end 0 0) (layer Edge.Cuts) (width 0.1)))`;
+  const bundle = await parseEdaProject([{ path: "Cutout.kicad_pcb", bytes: encoder.encode(pcb) }]);
+  const board = bundle.pcbs[0];
+
+  assert.equal(board.boardOutline.length, 8);
+  assert.ok(board.boardOutline.some((item) => item.geometry.source === "footprint"));
+  assert.deepEqual(board.physicalDimensions, {
+    width: "10",
+    height: "10",
+    thickness: "1.2",
+    unit: "mm",
+    boundingBox: { minX: "0", minY: "0", maxX: "10", maxY: "10" },
+    outlineClosed: true,
+  });
+  assert.ok(!bundle.diagnostics.some((item) => item.code === "BOARD_OUTLINE_OPEN"));
+});
+
+test("legacy center/start/angle PCB arcs are normalized before dimension calculation", async () => {
+  const pcb = `(kicad_pcb (version 20171130) (host pcbnew 5.1.0)
+    (general (thickness 0.8))
+    (layers (0 F.Cu signal) (31 B.Cu signal) (44 Edge.Cuts user))
+    (gr_line (start 1 0) (end 9 0) (layer Edge.Cuts) (width 0.1))
+    (gr_arc (start 9 1) (end 9 0) (angle 90) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 10 1) (end 10 9) (layer Edge.Cuts) (width 0.1))
+    (gr_arc (start 9 9) (end 10 9) (angle 90) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 9 10) (end 1 10) (layer Edge.Cuts) (width 0.1))
+    (gr_arc (start 1 9) (end 1 10) (angle 90) (layer Edge.Cuts) (width 0.1))
+    (gr_line (start 0 9) (end 0 1) (layer Edge.Cuts) (width 0.1))
+    (gr_arc (start 1 1) (end 0 1) (angle 90) (layer Edge.Cuts) (width 0.1)))`;
+  const bundle = await parseEdaProject([
+    { path: "Rounded.kicad_pcb", bytes: new TextEncoder().encode(pcb) },
+  ]);
+  const board = bundle.pcbs[0];
+
+  assert.equal(board.boardOutline.filter((item) => item.kind === "arc").length, 4);
+  assert.ok(
+    board.boardOutline
+      .filter((item) => item.kind === "arc")
+      .every((item) => item.geometry.center && item.geometry.start && item.geometry.end && item.geometry.angle === "90"),
+  );
+  assert.deepEqual(board.physicalDimensions, {
+    width: "10",
+    height: "10",
+    thickness: "0.8",
+    unit: "mm",
+    boundingBox: { minX: "0", minY: "0", maxX: "10", maxY: "10" },
+    outlineClosed: true,
+  });
 });
 
 test("KiCad power symbols become power labels instead of Part IR instances", async () => {

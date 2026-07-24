@@ -18,7 +18,7 @@ CANON 是一个只读、确定性的 EDA 工程解析 Agent。它在浏览器中
 
 | 格式 | 当前能力 | 说明 |
 | --- | --- | --- |
-| KiCad 6–9+ | 语义解析 | `.kicad_pro`、`.kicad_sch`、`.kicad_pcb`；S-expression Lexer/AST、器件、Pin、Wire、Junction、Label、PCB Layer、Footprint、Pad、Track、Via、Zone、Board Outline、显式 Net |
+| KiCad 5–9+ | 语义解析 | Legacy `.pro` / `.sch` 与现代 `.kicad_pro` / `.kicad_sch` / `.kicad_pcb`；器件、Pin、Wire、Junction、Label、PCB Layer、Footprint、Pad、Track、Via、Zone、Board Outline、板宽/板高/板厚、显式 Net |
 | EasyEDA 标准版 | 结构解析 | JSON / 多文档、受限深度遍历、转义 Shape 扫描、显式结构化器件字段、Unknown Shape 保留 |
 | JLCEDA / EasyEDA Pro | 流式摄取 | JSONL 逐行解析、异常行与未知 Record 保留；完整 Shape 连通性仍是后续阶段 |
 | Altium | 安全摄取 | `.PrjPcb` ASCII 元数据；SchDoc/PcbDoc/Lib 的 CFB/OLE 签名检查、Hash 与 Opaque Record 保留。MVP 不声称完整解析专有 Record |
@@ -89,6 +89,8 @@ KiCad 原理图使用坐标图构建 Net：
 
 PCB 只使用源文件显式 Net ID 建立 Physical Net。跨文档 Net Link 必须存在 RefDes + Pin/Pad Number 证据；只有名称相同的链接最多标为 `probable`。
 
+Net IR 的 `endpoints` 与 `segmentIds` 保存具体对象 ID，而不只是计数。界面可展开每条网络，查看 Symbol Pin、Label、Pad、Track、Via、Zone 以及跨文档链接。PCB IR 根据顶层及 Footprint 内的 `Edge.Cuts` 计算外接尺寸、边界框、板厚与闭合状态；开放板框只报告外接尺寸并产生诊断，不猜测面积或周长。
+
 ## API
 
 ```text
@@ -112,7 +114,7 @@ npm run build:vercel
 
 ## 后续优先级
 
-1. KiCad hierarchy / sheet instance、Bus、Hidden Power Pin、Legacy Adapter 与完整库快照。
+1. KiCad hierarchy / sheet instance、Bus、Hidden Power Pin 与完整库快照。
 2. EasyEDA Standard Shape 语义矩阵与 Pro 项目 Manifest。
 3. 受限 Altium CFB FAT/DIFAT/Stream Reader 与版本化 Record Parser。
 4. 对象存储、任务队列、增量解析、Replay、Semantic Diff、多租户鉴权与审计。

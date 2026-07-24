@@ -175,6 +175,19 @@ export type PcbIr = {
     kind: "line" | "arc" | "circle" | "rectangle";
     geometry: Record<string, unknown>;
   }>;
+  physicalDimensions?: {
+    width: string;
+    height: string;
+    thickness?: string;
+    unit: "mm";
+    boundingBox: {
+      minX: string;
+      minY: string;
+      maxX: string;
+      maxY: string;
+    };
+    outlineClosed: boolean;
+  };
   footprints: Array<{
     id: string;
     reference: string;

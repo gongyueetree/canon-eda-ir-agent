@@ -55,7 +55,7 @@ const PARSE_STAGES = [
 ];
 
 const SUPPORT_MATRIX = [
-  { format: "KiCad 6–9+", level: "语义解析", tone: "ready", detail: "Project / Sch / PCB / Symbol / Footprint" },
+  { format: "KiCad 5–9+", level: "语义解析", tone: "ready", detail: "Legacy Sch / Project / Sch / PCB / Symbol / Footprint" },
   { format: "EasyEDA 标准版", level: "语义解析", tone: "ready", detail: "JSON / docType 多页 / Sch + PCB Shape" },
   { format: "JLCEDA Pro", level: "部分语义", tone: "partial", detail: "EPro ZIP / Project manifest / ESch + EPCB JSONL" },
   { format: "Altium", level: "仅结构", tone: "planned", detail: "PrjPcb / DsnWrk / OutJob + CFB 原样保留" },
@@ -142,6 +142,7 @@ export default function EdaWorkbench() {
   const [dbConfigured, setDbConfigured] = useState<boolean | null>(null);
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [expandedNetId, setExpandedNetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const parseRunIdRef = useRef(0);
@@ -183,6 +184,7 @@ export default function EdaWorkbench() {
     setView("workspace");
     setActiveTab("overview");
     setSaveState("idle");
+    setExpandedNetId(null);
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const intake = await filesToInputAssets(files);
@@ -217,6 +219,7 @@ export default function EdaWorkbench() {
     setParseStage(0);
     setError(null);
     setSaveState("idle");
+    setExpandedNetId(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (directoryInputRef.current) directoryInputRef.current.value = "";
   };
@@ -246,6 +249,7 @@ export default function EdaWorkbench() {
       setBundle(data.bundle as CanonicalIrBundle);
       setView("workspace");
       setActiveTab("overview");
+      setExpandedNetId(null);
     } catch {
       setError("无法读取数据库中的 IR Bundle。");
     }
@@ -258,6 +262,39 @@ export default function EdaWorkbench() {
       return result;
     }, {});
   }, [bundle]);
+
+  const netTargetLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    if (!bundle) return labels;
+    for (const schematic of bundle.schematics) {
+      for (const pin of schematic.pins) labels.set(pin.id, `${pin.reference}.${pin.number}${pin.name ? ` (${pin.name})` : ""}`);
+      for (const label of schematic.labels) labels.set(label.id, `${label.kind}:${label.name}`);
+    }
+    for (const pcb of bundle.pcbs) {
+      const footprintById = new Map(pcb.footprints.map((footprint) => [footprint.id, footprint]));
+      for (const pad of pcb.pads) {
+        const reference = footprintById.get(pad.footprintId)?.reference ?? pad.footprintId.slice(-8);
+        labels.set(pad.id, `${reference}.Pad ${pad.number || "?"}`);
+      }
+      for (const track of pcb.tracks) {
+        const start = track.start ? `${track.start.x},${track.start.y}` : "?";
+        const end = track.end ? `${track.end.x},${track.end.y}` : "?";
+        labels.set(track.id, `${track.kind === "arc" ? "Arc" : "Track"} ${start} → ${end} mm`);
+      }
+      for (const via of pcb.vias) {
+        labels.set(via.id, `Via ${via.position ? `${via.position.x},${via.position.y} mm` : via.id.slice(-8)}`);
+      }
+      for (const zone of pcb.zones) labels.set(zone.id, `Zone ${zone.layers.join(", ") || zone.id.slice(-8)}`);
+    }
+    return labels;
+  }, [bundle]);
+
+  const describeEndpoint = (endpoint: CanonicalIrBundle["nets"][number]["endpoints"][number]) =>
+    (endpoint.targetId && netTargetLabels.get(endpoint.targetId)) ||
+    endpoint.identifier.reference ||
+    endpoint.identifier.name ||
+    endpoint.targetId?.slice(-8) ||
+    endpoint.type;
 
   const resultTabs: Array<{ id: ResultTab; label: string; count?: number }> = bundle
     ? [
@@ -312,7 +349,7 @@ export default function EdaWorkbench() {
           </div>
         </header>
 
-        <input ref={fileInputRef} type="file" multiple hidden accept=".zip,.kicad_pro,.kicad_sch,.kicad_pcb,.kicad_sym,.kicad_mod,.PrjPcb,.DsnWrk,.SchDoc,.PcbDoc,.SchLib,.PcbLib,.IntLib,.OutJob,.json,.jsonl,.epro,.eprj,.epru,.esch,.epcb,.esym,.efoo" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
+        <input ref={fileInputRef} type="file" multiple hidden accept=".zip,.pro,.sch,.brd,.lib,.kicad_pro,.kicad_sch,.kicad_pcb,.kicad_sym,.kicad_mod,.PrjPcb,.DsnWrk,.SchDoc,.PcbDoc,.SchLib,.PcbLib,.IntLib,.OutJob,.json,.jsonl,.epro,.eprj,.epru,.esch,.epcb,.esym,.efoo" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
         <input ref={directoryInputRef} type="file" multiple hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
 
         <div className="content-area">
@@ -408,7 +445,21 @@ export default function EdaWorkbench() {
 
                 {activeTab === "pcb" && (
                   <div className="object-grid">
-                    {bundle.pcbs.map((pcb) => <article className="panel pcb-card" key={pcb.id}><div className="pcb-card-head"><div className="object-icon pcb"><CircuitBoard size={21} /></div><div><small>PCB IR · mm</small><h3>{pcb.name}</h3></div><span>{pcb.layers.filter((layer) => layer.copper).length} copper layers</span></div><div className="pcb-stats"><span><b>{pcb.footprints.length}</b>Footprints</span><span><b>{pcb.pads.length}</b>Pads</span><span><b>{pcb.tracks.length}</b>Tracks</span><span><b>{pcb.vias.length}</b>Vias</span><span><b>{pcb.zones.length}</b>Zones</span><span><b>{pcb.boardOutline.length}</b>Outline objects</span></div><div className="layer-chips">{pcb.layers.slice(0, 12).map((layer) => <span className={layer.copper ? "copper" : ""} key={layer.id}>{layer.name}</span>)}</div></article>)}
+                    {bundle.pcbs.map((pcb) => (
+                      <article className="panel pcb-card" key={pcb.id}>
+                        <div className="pcb-card-head"><div className="object-icon pcb"><CircuitBoard size={21} /></div><div><small>PCB IR · mm</small><h3>{pcb.name}</h3></div><span>{pcb.layers.filter((layer) => layer.copper).length} copper layers</span></div>
+                        {pcb.physicalDimensions && (
+                          <div className="pcb-dimensions">
+                            <div><small>BOARD SIZE</small><strong>{pcb.physicalDimensions.width} × {pcb.physicalDimensions.height} mm</strong></div>
+                            <div><small>THICKNESS</small><strong>{pcb.physicalDimensions.thickness ? `${pcb.physicalDimensions.thickness} mm` : "未声明"}</strong></div>
+                            <div><small>BOUNDING BOX</small><strong>X {pcb.physicalDimensions.boundingBox.minX}–{pcb.physicalDimensions.boundingBox.maxX} · Y {pcb.physicalDimensions.boundingBox.minY}–{pcb.physicalDimensions.boundingBox.maxY}</strong></div>
+                            <div><small>OUTLINE</small><strong>{pcb.physicalDimensions.outlineClosed ? "闭合" : "开放 / 部分"}</strong></div>
+                          </div>
+                        )}
+                        <div className="pcb-stats"><span><b>{pcb.footprints.length}</b>Footprints</span><span><b>{pcb.pads.length}</b>Pads</span><span><b>{pcb.tracks.length}</b>Tracks</span><span><b>{pcb.vias.length}</b>Vias</span><span><b>{pcb.zones.length}</b>Zones</span><span><b>{pcb.boardOutline.length}</b>Outline objects</span></div>
+                        <div className="layer-chips">{pcb.layers.slice(0, 12).map((layer) => <span className={layer.copper ? "copper" : ""} key={layer.id}>{layer.name}</span>)}</div>
+                      </article>
+                    ))}
                     {bundle.pcbs.length === 0 && <div className="empty-panel"><CircuitBoard size={34} /><h3>没有规范化的 PCB IR</h3><p>专有 PCB 容器会保留 Hash 和诊断，但不会猜测 Pad、Track 或 Net。</p></div>}
                   </div>
                 )}
@@ -424,7 +475,43 @@ export default function EdaWorkbench() {
                   <article className="panel table-panel">
                     <div className="panel-title"><div><Network size={18} /><strong>Net IR</strong></div><span>Logical 与 Physical 分域保存</span></div>
                     <div className="net-summary"><span><i className="logical" /> {bundle.summary.logicalNets} Schematic logical</span><span><i className="physical" /> {bundle.summary.pcbNets} PCB physical</span><span><GitCompareArrows size={15} /> {bundle.crossDocumentLinks.filter((link) => link.type === "schematic_net_to_pcb_net" && link.status === "verified").length} verified cross-links</span></div>
-                    <div className="data-table"><table><thead><tr><th>网络名称</th><th>Domain</th><th>Endpoints</th><th>Segments</th><th>Resolution</th><th>Confidence</th></tr></thead><tbody>{bundle.nets.map((net) => <tr key={net.id}><td><strong>{net.canonicalName}</strong></td><td><span className={`net-domain ${net.domain}`}>{net.domain}</span></td><td>{net.endpoints.length}</td><td>{net.segmentIds.length}</td><td>{net.resolution.method}</td><td>{Math.round(net.resolution.confidence * 100)}%</td></tr>)}</tbody></table></div>
+                    <div className="data-table"><table><thead><tr><th>网络名称</th><th>Domain</th><th>Endpoints</th><th>Segments</th><th>Resolution</th><th>Confidence</th></tr></thead><tbody>
+                      {bundle.nets.flatMap((net) => {
+                        const expanded = expandedNetId === net.id;
+                        const relatedLinks = bundle.crossDocumentLinks.filter((link) => link.sourceEntityId === net.id || link.targetEntityId === net.id);
+                        return [
+                          <tr className="net-row" key={net.id}>
+                            <td><button className="net-expand" aria-expanded={expanded} onClick={() => setExpandedNetId(expanded ? null : net.id)}><ChevronRight size={13} /><strong>{net.canonicalName}</strong></button></td>
+                            <td><span className={`net-domain ${net.domain}`}>{net.domain}</span></td><td>{net.endpoints.length}</td><td>{net.segmentIds.length}</td><td>{net.resolution.method}</td><td>{Math.round(net.resolution.confidence * 100)}%</td>
+                          </tr>,
+                          expanded ? (
+                            <tr className="net-detail-row" key={`${net.id}:details`}>
+                              <td colSpan={6}>
+                                <div className="net-detail">
+                                  <div className="net-detail-heading"><strong>具体连接关系</strong><code>{net.id}</code></div>
+                                  <div className="endpoint-list">
+                                    {net.endpoints.map((endpoint) => (
+                                      <span className={`endpoint-chip ${endpoint.type}`} key={endpoint.id}>
+                                        <small>{endpoint.type}</small>
+                                        <b>{describeEndpoint(endpoint)}</b>
+                                        {endpoint.targetId && <code>{endpoint.targetId}</code>}
+                                      </span>
+                                    ))}
+                                    {net.endpoints.length === 0 && <span className="muted">该网络当前没有已解析端点。</span>}
+                                  </div>
+                                  {relatedLinks.length > 0 && (
+                                    <div className="cross-link-list">
+                                      <strong>跨文档链接</strong>
+                                      {relatedLinks.map((link) => <span key={link.id}>{link.type} · {link.status} · {link.evidence.join(" / ")}</span>)}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ) : null,
+                        ];
+                      })}
+                    </tbody></table></div>
                   </article>
                 )}
 

@@ -29,6 +29,8 @@ function ignoredEntryKind(path: string): IgnoredEntryKind | undefined {
   if (
     name.toLowerCase().endsWith(".kicad_prl") ||
     name === "fp-info-cache" ||
+    /\.bak$/i.test(name) ||
+    /\.(?:sch|kicad_sch|kicad_pcb|brd)-bak$/i.test(name) ||
     /^~.+\.lck$/i.test(name) ||
     segments.some((segment) => /-backups$/i.test(segment))
   ) {
@@ -189,7 +191,7 @@ export async function filesToInputAssets(files: File[]): Promise<{
     diagnostics.push(
       diagnostic(
         "EDA_LOCAL_STATE_IGNORED",
-        `已忽略 ${ignoredEntries.eda_local} 个 EDA 本机状态、缓存或备份条目（如 .kicad_prl、fp-info-cache、锁文件或备份目录）。`,
+        `已忽略 ${ignoredEntries.eda_local} 个 EDA 本机状态、缓存或备份条目（如 .kicad_prl、fp-info-cache、*.bak、*-bak、锁文件或备份目录）。`,
         "information",
         "structure",
       ),

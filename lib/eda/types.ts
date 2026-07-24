@@ -113,7 +113,7 @@ export type NetIr = {
   endpoints: NetEndpoint[];
   segmentIds: string[];
   resolution: {
-    method: "explicit" | "connectivity_resolved" | "unknown";
+    method: "explicit" | "connectivity_resolved" | "unresolved" | "unknown";
     confidence: number;
   };
   sourceRefs: SourceRef[];
@@ -126,6 +126,16 @@ export type SchematicIr = {
   rootSheetId: string;
   sheets: Array<{ id: string; name: string; instancePath: string }>;
   symbolInstanceIds: string[];
+  pins: Array<{
+    id: string;
+    partId: string;
+    symbolUnitId: string;
+    reference: string;
+    number: string;
+    name: string;
+    position: IrPoint;
+    sourceRef: SourceRef;
+  }>;
   wires: Array<{ id: string; points: IrPoint[]; sourceRef: SourceRef }>;
   junctions: Array<{ id: string; position: IrPoint; sourceRef: SourceRef }>;
   labels: Array<{
@@ -187,6 +197,7 @@ export type PcbIr = {
     size?: { x: string; y: string; unit: "mm" };
     layers: string[];
     netId?: string;
+    sourceNativeNetId?: string;
     netName?: string;
     sourceRef: SourceRef;
   }>;
@@ -199,6 +210,7 @@ export type PcbIr = {
     width?: string;
     layer?: string;
     netId?: string;
+    sourceNativeNetId?: string;
     sourceRef: SourceRef;
   }>;
   vias: Array<{
@@ -208,11 +220,13 @@ export type PcbIr = {
     drill?: string;
     layers: string[];
     netId?: string;
+    sourceNativeNetId?: string;
     sourceRef: SourceRef;
   }>;
   zones: Array<{
     id: string;
     netId?: string;
+    sourceNativeNetId?: string;
     layers: string[];
     sourceRef: SourceRef;
   }>;

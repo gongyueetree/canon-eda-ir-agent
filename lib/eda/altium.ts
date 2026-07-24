@@ -46,6 +46,29 @@ export function parseAltium(inputs: InputAsset[], inventory: SourceAsset[]): Kic
       output.normalized += Object.keys(metadata).length;
       continue;
     }
+    if (asset.extension === ".outjob") {
+      const configuration = decodeUtf8(input.bytes);
+      output.settings = {
+        ...output.settings,
+        outJobs: [
+          ...((output.settings.outJobs as Array<Record<string, unknown>> | undefined) ?? []),
+          { path: asset.relativePath, text: configuration },
+        ],
+      };
+      output.recognized += 1;
+      output.normalized += 1;
+      output.diagnostics.push(
+        diagnostic(
+          "ALTIUM_OUTJOB_PRESERVED",
+          `${asset.relativePath} 已作为 Altium 输出任务配置保留；它不是 CFB 设计文档。`,
+          "information",
+          "structure",
+          ref,
+          "preserved",
+        ),
+      );
+      continue;
+    }
     if (isCfb(input.bytes)) {
       output.opaqueNodes.push({ recordType: `Altium.CFB${asset.extension}`, sourcePath: asset.relativePath, payloadHash: asset.sha256 });
       output.opaque += 1;
@@ -63,7 +86,16 @@ export function parseAltium(inputs: InputAsset[], inventory: SourceAsset[]): Kic
     } else {
       output.opaqueNodes.push({ recordType: `Altium.Asset${asset.extension}`, sourcePath: asset.relativePath, payloadHash: asset.sha256 });
       output.opaque += 1;
-      output.diagnostics.push(diagnostic("SOURCE_FILE_CORRUPTED", `${asset.relativePath} 的内容与预期 Altium 容器签名不一致。`, "error", "format", ref, "preserved"));
+      output.diagnostics.push(
+        diagnostic(
+          "ALTIUM_CONTAINER_UNRECOGNIZED",
+          `${asset.relativePath} 不是可识别的 CFB 容器；文件已按 Hash 原样保留，未据此生成语义实体。`,
+          "warning",
+          "unsupported",
+          ref,
+          "preserved",
+        ),
+      );
     }
   }
   output.projectName ??= inventory.find((asset) => asset.detectedFormat === "altium") ? withoutExtension(inventory.find((asset) => asset.detectedFormat === "altium")!.fileName) : "Altium project";

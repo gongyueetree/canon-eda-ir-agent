@@ -56,9 +56,9 @@ const PARSE_STAGES = [
 
 const SUPPORT_MATRIX = [
   { format: "KiCad 6–9+", level: "语义解析", tone: "ready", detail: "Project / Sch / PCB / Symbol / Footprint" },
-  { format: "EasyEDA 标准版", level: "结构解析", tone: "partial", detail: "JSON / 多页 / Shape 保留" },
-  { format: "JLCEDA Pro", level: "流式摄取", tone: "partial", detail: "ZIP / JSONL / Unknown Record" },
-  { format: "Altium", level: "安全摄取", tone: "planned", detail: "PrjPcb + CFB 原样保留" },
+  { format: "EasyEDA 标准版", level: "语义解析", tone: "ready", detail: "JSON / docType 多页 / Sch + PCB Shape" },
+  { format: "JLCEDA Pro", level: "部分语义", tone: "partial", detail: "EPro ZIP / Project manifest / ESch + EPCB JSONL" },
+  { format: "Altium", level: "仅结构", tone: "planned", detail: "PrjPcb / DsnWrk / OutJob + CFB 原样保留" },
 ];
 
 function formatBytes(bytes: number): string {
@@ -144,6 +144,7 @@ export default function EdaWorkbench() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
+  const parseRunIdRef = useRef(0);
 
   const refreshProjects = async () => {
     try {
@@ -174,6 +175,7 @@ export default function EdaWorkbench() {
   }, []);
 
   const runParse = async (files: File[]) => {
+    const runId = ++parseRunIdRef.current;
     setError(null);
     setBundle(null);
     setIsParsing(true);
@@ -184,19 +186,39 @@ export default function EdaWorkbench() {
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const intake = await filesToInputAssets(files);
+      if (runId !== parseRunIdRef.current) return;
       setParseStage(2);
       await new Promise((resolve) => setTimeout(resolve, 90));
+      if (runId !== parseRunIdRef.current) return;
       setParseStage(4);
       const result = await parseEdaProject(intake.assets, intake.diagnostics);
+      if (runId !== parseRunIdRef.current) return;
       setParseStage(7);
       await new Promise((resolve) => setTimeout(resolve, 110));
+      if (runId !== parseRunIdRef.current) return;
       setBundle(result);
       setParseStage(PARSE_STAGES.length - 1);
     } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "解析失败，请检查工程包。 ");
+      if (runId === parseRunIdRef.current) {
+        setError(parseError instanceof Error ? parseError.message : "解析失败，请检查工程包。 ");
+      }
     } finally {
-      setIsParsing(false);
+      if (runId === parseRunIdRef.current) setIsParsing(false);
     }
+  };
+
+  const startNewProject = () => {
+    parseRunIdRef.current += 1;
+    setBundle(null);
+    setView("workspace");
+    setActiveTab("overview");
+    setIsDragging(false);
+    setIsParsing(false);
+    setParseStage(0);
+    setError(null);
+    setSaveState("idle");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (directoryInputRef.current) directoryInputRef.current.value = "";
   };
 
   const saveToDatabase = async () => {
@@ -286,12 +308,12 @@ export default function EdaWorkbench() {
                 </button>
               </>
             )}
-            <button className="new-project" onClick={() => fileInputRef.current?.click()}><FolderOpen size={16} /> 新工程</button>
+            <button className="new-project" onClick={startNewProject}><FolderOpen size={16} /> 新工程</button>
           </div>
         </header>
 
-        <input ref={fileInputRef} type="file" multiple hidden accept=".zip,.kicad_pro,.kicad_sch,.kicad_pcb,.kicad_sym,.kicad_mod,.PrjPcb,.SchDoc,.PcbDoc,.SchLib,.PcbLib,.json,.jsonl,.epro,.eprj" onChange={(event) => event.target.files && void runParse(Array.from(event.target.files))} />
-        <input ref={directoryInputRef} type="file" multiple hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(event) => event.target.files && void runParse(Array.from(event.target.files))} />
+        <input ref={fileInputRef} type="file" multiple hidden accept=".zip,.kicad_pro,.kicad_sch,.kicad_pcb,.kicad_sym,.kicad_mod,.PrjPcb,.DsnWrk,.SchDoc,.PcbDoc,.SchLib,.PcbLib,.IntLib,.OutJob,.json,.jsonl,.epro,.eprj,.epru,.esch,.epcb,.esym,.efoo" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
+        <input ref={directoryInputRef} type="file" multiple hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
 
         <div className="content-area">
           {view === "workspace" && !bundle && !isParsing && (
@@ -356,7 +378,7 @@ export default function EdaWorkbench() {
                       <article className="panel pipeline-panel">
                         <div className="panel-title"><div><Waypoints size={18} /><strong>证据管线</strong></div><span>Parser replay ready</span></div>
                         <div className="pipeline-visual">
-                          {["Raw source", "Source model", "Canonical IR", "Validated bundle"].map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong>{index < 3 && <ChevronRight size={15} />}</div>)}
+                          {["Raw source", "Source model", "Canonical IR", bundle.summary.errors > 0 ? "Bundle with errors" : bundle.fidelity.overallStatus === "structure_only" ? "Structure-only bundle" : "Validated bundle"].map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong>{index < 3 && <ChevronRight size={15} />}</div>)}
                         </div>
                         <div className="safety-card"><ShieldCheck size={21} /><div><strong>解析边界已执行</strong><p>不修改源文件 · 不执行宏/插件 · Unknown Record 原样计入 Fidelity</p></div></div>
                       </article>
@@ -435,7 +457,7 @@ export default function EdaWorkbench() {
           {view === "adapters" && (
             <section className="secondary-view">
               <div className="section-heading"><div className="eyebrow">ADAPTER REGISTRY</div><h1>格式能力矩阵</h1><p>每项能力都按真实实现标注；“安全摄取”不等于“语义完整解析”。</p></div>
-              <div className="adapter-grid">{SUPPORT_MATRIX.map((item) => <article className="adapter-card" key={item.format}><div className={`adapter-icon ${item.tone}`}>{item.format.startsWith("KiCad") ? <CircuitBoard size={23} /> : item.format.startsWith("Altium") ? <Layers3 size={23} /> : <Box size={23} />}</div><div><div className="adapter-title"><h3>{item.format}</h3><span className={item.tone}>{item.level}</span></div><p>{item.detail}</p></div><ul>{item.format.startsWith("KiCad") ? <><li><Check size={13} /> S-expression lexer + AST + Source Span</li><li><Check size={13} /> Deterministic junction connectivity</li><li><Check size={13} /> PCB explicit Net assignment</li></> : item.format.startsWith("Altium") ? <><li><Check size={13} /> PrjPcb metadata</li><li><Check size={13} /> CFB signature and bounds intake</li><li className="pending"><Clock3 size={13} /> Proprietary Record semantic mapper</li></> : <><li><Check size={13} /> JSON / JSONL bounded traversal</li><li><Check size={13} /> Escaped Shape scanner</li><li className="pending"><Clock3 size={13} /> Full Shape connectivity matrix</li></>}</ul></article>)}</div>
+              <div className="adapter-grid">{SUPPORT_MATRIX.map((item) => <article className="adapter-card" key={item.format}><div className={`adapter-icon ${item.tone}`}>{item.format.startsWith("KiCad") ? <CircuitBoard size={23} /> : item.format.startsWith("Altium") ? <Layers3 size={23} /> : <Box size={23} />}</div><div><div className="adapter-title"><h3>{item.format}</h3><span className={item.tone}>{item.level}</span></div><p>{item.detail}</p></div><ul>{item.format.startsWith("KiCad") ? <><li><Check size={13} /> S-expression lexer + AST + Source Span</li><li><Check size={13} /> Deterministic junction connectivity</li><li><Check size={13} /> PCB explicit Net assignment</li></> : item.format.startsWith("Altium") ? <><li><Check size={13} /> PrjPcb / DsnWrk / OutJob configuration</li><li><Check size={13} /> CFB signature and bounds intake</li><li className="pending"><Clock3 size={13} /> Proprietary Record semantic mapper</li></> : item.format.startsWith("JLC") ? <><li><Check size={13} /> EPro ZIP + Project manifest</li><li><Check size={13} /> ESch / EPCB record mapping</li><li className="pending"><Clock3 size={13} /> SQLite private-table semantic mapper</li></> : <><li><Check size={13} /> docType 1 / 3 / 5 routing</li><li><Check size={13} /> Schematic and PCB Shape mapping</li><li className="pending"><Clock3 size={13} /> Rare Shape semantic coverage</li></>}</ul></article>)}</div>
               <article className="panel principles"><div className="panel-title"><div><ShieldCheck size={18} /><strong>不可突破的解析纪律</strong></div></div><div>{["Wire 几何对象不等于 Net", "Cross without Junction 不连接", "同名 Net 不自动跨文档合并", "Unknown Token / Record / Shape 必须保留", "V1 只读，不无损写回", "核心解析与连通性不使用 LLM"].map((item) => <span key={item}><Check size={14} />{item}</span>)}</div></article>
             </section>
           )}

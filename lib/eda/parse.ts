@@ -1,9 +1,11 @@
 import { parseAltium } from "./altium";
 import { inventoryAssets } from "./detect";
 import { parseEasyEda } from "./easyeda";
+import { isJlcProProject, parseJlcPro } from "./jlcpro";
 import { parseKicad, type KicadParseOutput } from "./kicad";
 import type { CanonicalIrBundle, InputAsset, NetIr, ParseDiagnostic, PartIr, SourceFormat } from "./types";
 import { basename, diagnostic, stableId, withoutExtension } from "./util";
+import { validateReferentialIntegrity } from "./validate";
 
 function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["pcbs"]): CanonicalIrBundle["crossDocumentLinks"] {
   const links: CanonicalIrBundle["crossDocumentLinks"] = [];
@@ -19,6 +21,8 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
   for (const part of parts) {
     const footprint = footprintByReference.get(part.reference);
     if (!footprint) {
+      if (!pcbs.length) continue;
+      if (!part.footprint && part.reference.startsWith("#")) continue;
       links.push({
         id: stableId("link", "part_to_footprint", part.id),
         type: "part_to_footprint",
@@ -41,28 +45,36 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
       confidence: 1,
       evidence: [`RefDes=${part.reference}`, "Project 内唯一器件/封装实例"],
     });
-    const schematicPins = new Set(
+    const schematicPins = new Map(
       nets
         .filter((net) => net.domain === "schematic_logical")
         .flatMap((net) => net.endpoints)
-        .filter((endpoint) => endpoint.type === "symbol_pin" && endpoint.identifier.reference === part.reference)
-        .map((endpoint) => endpoint.identifier.pin),
+        .filter((endpoint) => endpoint.type === "symbol_pin" && endpoint.identifier.reference === part.reference && endpoint.targetId)
+        .map((endpoint) => [endpoint.targetId!, endpoint] as const),
     );
-    for (const pin of schematicPins) {
+    const mappedPinNumbers = new Set<string>();
+    for (const [pinId, endpoint] of schematicPins) {
+      const pin = endpoint.identifier.pin;
       const matchingPads = pcbs.flatMap((pcb) => pcb.pads).filter((pad) => pad.footprintId === footprint.id && pad.number === pin);
       if (matchingPads.length === 1) {
-        part.pinPadMap.push({ pin, pad: matchingPads[0].number, status: "verified" });
+        if (!mappedPinNumbers.has(pin)) {
+          part.pinPadMap.push({ pin, pad: matchingPads[0].number, status: "verified" });
+          mappedPinNumbers.add(pin);
+        }
         links.push({
-          id: stableId("link", "pin_to_pad", part.id, pin, matchingPads[0].id),
+          id: stableId("link", "pin_to_pad", pinId, matchingPads[0].id),
           type: "pin_to_pad",
-          sourceEntityId: stableId("pin-semantic", part.id, pin),
+          sourceEntityId: pinId,
           targetEntityId: matchingPads[0].id,
           status: "verified",
           confidence: 1,
           evidence: [`RefDes=${part.reference}`, `Pin/Pad Number=${pin}`],
         });
       } else {
-        part.pinPadMap.push({ pin, pad: matchingPads[0]?.number ?? "", status: "missing" });
+        if (!mappedPinNumbers.has(pin)) {
+          part.pinPadMap.push({ pin, pad: matchingPads[0]?.number ?? "", status: "missing" });
+          mappedPinNumbers.add(pin);
+        }
       }
     }
   }
@@ -130,10 +142,20 @@ function calculateFidelity(
   diagnostics: ParseDiagnostic[],
 ): CanonicalIrBundle["fidelity"] {
   const errorCount = diagnostics.filter((item) => item.severity === "error" || item.severity === "fatal").length;
+  const hasUnresolvedSchematicNet = parsed.nets.some(
+    (net) => net.domain === "schematic_logical" && net.resolution.method === "unresolved",
+  );
+  const hasSemanticGap = diagnostics.some(
+    (item) =>
+      item.code.includes("PARTIAL") ||
+      item.code.includes("STRUCTURE_ONLY") ||
+      item.code.includes("UNSUPPORTED") ||
+      item.code.includes("UNRECOGNIZED"),
+  );
   const dimensions: CanonicalIrBundle["fidelity"]["dimensions"] = {
     sourceFiles: { status: "complete", recognized: parsed.recognized, normalized: parsed.normalized, opaque: parsed.opaque, note: "所有摄取文件均保留 Hash 与清单。" },
     schematicConnectivity: {
-      status: format === "kicad" && parsed.schematics.length ? "substantially_complete" : format === "altium" ? "structure_only" : "partial",
+      status: hasUnresolvedSchematicNet ? "partial" : format === "kicad" && parsed.schematics.length ? "substantially_complete" : format === "altium" ? "structure_only" : "partial",
       recognized: parsed.schematics.reduce((sum, schematic) => sum + schematic.wires.length + schematic.labels.length, 0),
       normalized: parsed.nets.filter((net) => net.domain === "schematic_logical").length,
       opaque: 0,
@@ -162,7 +184,21 @@ function calculateFidelity(
     },
   };
   const overallStatus =
-    errorCount > 0 ? "partial" : format === "altium" ? "structure_only" : parsed.opaque > 0 ? "partial" : "substantially_complete";
+    format === "altium"
+      ? "structure_only"
+      : errorCount > 0 || hasUnresolvedSchematicNet || hasSemanticGap || parsed.opaque > 0
+        ? "partial"
+        : "substantially_complete";
+  const criticalGapCount = diagnostics.filter(
+    (item) =>
+      item.severity === "error" ||
+      item.severity === "fatal" ||
+      item.code.includes("MISSING") ||
+      item.code.includes("CONFLICT") ||
+      item.code.includes("PARTIAL") ||
+      item.code.includes("STRUCTURE_ONLY") ||
+      item.code === "SCHEMATIC_ISOLATED_SEGMENT",
+  ).length;
   return {
     overallStatus,
     dimensions,
@@ -170,7 +206,7 @@ function calculateFidelity(
     normalizedObjectCount: parsed.normalized,
     opaqueObjectCount: parsed.opaque,
     droppedObjectCount: 0,
-    criticalGapCount: errorCount + diagnostics.filter((item) => item.code.includes("MISSING") || item.code.includes("CONFLICT")).length,
+    criticalGapCount,
   };
 }
 
@@ -178,7 +214,7 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
   const detection = await inventoryAssets(inputs);
   let parsed: KicadParseOutput;
   if (detection.sourceFormat === "kicad") parsed = parseKicad(inputs, detection.assets);
-  else if (detection.sourceFormat === "easyeda") parsed = parseEasyEda(inputs, detection.assets);
+  else if (detection.sourceFormat === "easyeda") parsed = isJlcProProject(inputs, detection.assets) ? parseJlcPro(inputs, detection.assets) : parseEasyEda(inputs, detection.assets);
   else if (detection.sourceFormat === "altium") parsed = parseAltium(inputs, detection.assets);
   else {
     parsed = {
@@ -186,31 +222,28 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     };
   }
   const diagnostics = [...intakeDiagnostics, ...detection.diagnostics, ...parsed.diagnostics];
+  const jlcPro = detection.sourceFormat === "easyeda" && isJlcProProject(inputs, detection.assets);
   const projectName = parsed.projectName ?? withoutExtension(detection.assets.find((asset) => asset.entryRole === "project")?.fileName ?? basename(inputs[0]?.path ?? "Untitled project"));
   const crossDocumentLinks = linkDocuments(parsed.parts, parsed.nets, parsed.pcbs);
   for (const missing of crossDocumentLinks.filter((link) => link.status === "missing")) {
     const part = parsed.parts.find((item) => item.id === missing.sourceEntityId);
     diagnostics.push(diagnostic("FOOTPRINT_DEFINITION_MISSING", `${part?.reference ?? "器件"} 没有匹配的 PCB Footprint。`, "warning", "consistency", part?.sourceRefs[0]));
   }
-  const documentGraph = [
-    ...detection.assets.map((asset) => ({ id: stableId("document", asset.id), type: asset.entryRole, name: asset.fileName, relation: "contains" as const })),
-  ];
+  const documentGraphById = new Map<string, CanonicalIrBundle["project"]["documentGraph"][number]>();
+  for (const asset of detection.assets) {
+    const id = stableId("document", asset.sha256, asset.relativePath);
+    documentGraphById.set(id, { id, type: asset.entryRole, name: asset.fileName, relation: "contains" });
+  }
+  for (const schematic of parsed.schematics) {
+    documentGraphById.set(schematic.documentId, { id: schematic.documentId, type: "schematic", name: schematic.name, relation: "contains" });
+  }
+  for (const pcb of parsed.pcbs) {
+    documentGraphById.set(pcb.documentId, { id: pcb.documentId, type: "pcb", name: pcb.name, relation: "contains" });
+  }
+  const documentGraph = Array.from(documentGraphById.values());
   const bundleId = stableId("bundle", ...detection.assets.map((asset) => asset.sha256).sort());
-  const fidelity = calculateFidelity(detection.sourceFormat, parsed, diagnostics);
   const opaqueExtensions = parsed.opaqueNodes.map((node) => ({ sourceFormat: detection.sourceFormat, recordType: node.recordType, sourcePath: node.sourcePath, preservationStatus: "preserved" as const, payloadHash: node.payloadHash }));
-  return {
-    bundleId,
-    generatedAt: new Date().toISOString(),
-    parser: {
-      agent: "eda-canonical-ir-agent",
-      agentVersion: "1.0.0-mvp",
-      adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? "altium-safe-intake" : "unknown",
-      adapterVersion: "1.0.0-mvp",
-      deterministic: true,
-      llmUsedForParsing: false,
-      roundTripReadiness: "read_only",
-    },
-    project: {
+  const project: CanonicalIrBundle["project"] = {
       projectIrVersion: "1.0.0",
       id: stableId("project", ...detection.assets.map((asset) => asset.sha256).sort()),
       name: projectName,
@@ -220,7 +253,34 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
       documentGraph,
       settings: parsed.settings,
       opaqueExtensions,
+  };
+  const sourceMap = Array.from(new Map(parsed.sourceMap.map((ref) => [`${ref.assetId}:${ref.nativeId ?? ref.jsonPath ?? ref.path}:${ref.line ?? ""}`, ref])).values());
+  diagnostics.push(
+    ...validateReferentialIntegrity({
+      project,
+      inventory: detection.assets,
+      schematics: parsed.schematics,
+      pcbs: parsed.pcbs,
+      parts: parsed.parts,
+      nets: parsed.nets,
+      crossDocumentLinks,
+      sourceMap,
+    }),
+  );
+  const fidelity = calculateFidelity(detection.sourceFormat, parsed, diagnostics);
+  return {
+    bundleId,
+    generatedAt: new Date().toISOString(),
+    parser: {
+      agent: "eda-canonical-ir-agent",
+      agentVersion: "1.0.0-mvp",
+      adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? "altium-safe-intake" : "unknown",
+      adapterVersion: "1.0.0-mvp",
+      deterministic: true,
+      llmUsedForParsing: false,
+      roundTripReadiness: "read_only",
     },
+    project,
     inventory: detection.assets,
     schematics: parsed.schematics,
     pcbs: parsed.pcbs,
@@ -230,7 +290,7 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     variants: [],
     libraries: parsed.libraries,
     crossDocumentLinks,
-    sourceMap: Array.from(new Map(parsed.sourceMap.map((ref) => [`${ref.assetId}:${ref.nativeId ?? ref.jsonPath ?? ref.path}:${ref.line ?? ""}`, ref])).values()),
+    sourceMap,
     diagnostics,
     fidelity,
     summary: {

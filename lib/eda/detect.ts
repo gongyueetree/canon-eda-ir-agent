@@ -7,7 +7,7 @@ const ALTIUM_EXTENSIONS = new Set([".prjpcb", ".schdoc", ".pcbdoc", ".schlib", "
 function extensionFormat(extension: string): SourceFormat {
   if (KICAD_EXTENSIONS.has(extension)) return "kicad";
   if (ALTIUM_EXTENSIONS.has(extension)) return "altium";
-  if ([".json", ".jsonl", ".epro", ".eprj", ".esch", ".epcb"].includes(extension)) return "easyeda";
+  if ([".json", ".jsonl", ".epro", ".eprj", ".epru", ".esch", ".epcb", ".esym", ".efoo", ".ecop"].includes(extension)) return "easyeda";
   return "unknown";
 }
 
@@ -30,11 +30,11 @@ function contentFormat(asset: InputAsset): SourceFormat {
 }
 
 function roleFor(extension: string): SourceAsset["entryRole"] {
-  if ([".kicad_pro", ".pro", ".prjpcb", ".epro", ".eprj"].includes(extension)) return "project";
+  if ([".kicad_pro", ".pro", ".prjpcb", ".epro", ".eprj", ".epru"].includes(extension)) return "project";
   if ([".kicad_sch", ".sch", ".schdoc", ".esch"].includes(extension)) return "schematic";
   if ([".kicad_pcb", ".brd", ".pcbdoc", ".epcb"].includes(extension)) return "pcb";
-  if ([".kicad_sym", ".schlib"].includes(extension)) return "symbol_library";
-  if ([".kicad_mod", ".pcblib", ".intlib"].includes(extension)) return "footprint_library";
+  if ([".kicad_sym", ".schlib", ".esym"].includes(extension)) return "symbol_library";
+  if ([".kicad_mod", ".pcblib", ".intlib", ".efoo"].includes(extension)) return "footprint_library";
   if ([".kicad_dru", ".outjob"].includes(extension)) return "rules";
   if ([".json", ".jsonl"].includes(extension)) return "unknown";
   return "attachment";

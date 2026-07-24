@@ -45,8 +45,10 @@ type SymbolDefinition = { libraryId: string; pins: SymbolPinDefinition[] };
 type PinAnchor = {
   id: string;
   partId: string;
+  symbolUnitId: string;
   reference: string;
   pin: string;
+  name: string;
   x: string;
   y: string;
   sourceRef: SourceRef;
@@ -190,12 +192,20 @@ function buildConnectivity(
       }
     }
   }
+  const globalLabelPoints = new Map<string, string>();
+  for (const label of schematic.labels.filter((candidate) => candidate.kind === "global" || candidate.kind === "power")) {
+    const labelPoint = pointKey(label.position.x, label.position.y);
+    const semanticKey = `${label.kind}:${label.name}`;
+    const existingPoint = globalLabelPoints.get(semanticKey);
+    if (existingPoint) uf.union(existingPoint, labelPoint);
+    else globalLabelPoints.set(semanticKey, labelPoint);
+  }
 
   const noConnectKeys = new Set(schematic.noConnects.map((item) => pointKey(item.x, item.y)));
-  const groups = new Map<string, { labels: typeof schematic.labels; pins: PinAnchor[]; segmentIds: string[] }>();
+  const groups = new Map<string, { labels: typeof schematic.labels; pins: PinAnchor[]; wires: typeof schematic.wires }>();
   const ensure = (key: string) => {
     const root = uf.find(key);
-    const existing = groups.get(root) ?? { labels: [], pins: [], segmentIds: [] };
+    const existing = groups.get(root) ?? { labels: [], pins: [], wires: [] };
     groups.set(root, existing);
     return existing;
   };
@@ -207,12 +217,12 @@ function buildConnectivity(
   }
   for (const wire of schematic.wires) {
     const first = wire.points[0];
-    if (first) ensure(pointKey(first.x, first.y)).segmentIds.push(wire.id);
+    if (first) ensure(pointKey(first.x, first.y)).wires.push(wire);
   }
 
   const nets: NetIr[] = [];
   for (const [root, group] of groups) {
-    if (!group.labels.length && !group.pins.length && !group.segmentIds.length) continue;
+    if (!group.labels.length && !group.pins.length && !group.wires.length) continue;
     const labelNames = Array.from(new Set(group.labels.map((label) => label.name).filter(Boolean)));
     if (labelNames.length > 1) {
       diagnostics.push(
@@ -222,6 +232,19 @@ function buildConnectivity(
           "warning",
           "connectivity",
           group.labels[0]?.sourceRef,
+          "preserved",
+        ),
+      );
+    }
+    const isUnresolvedSegment = group.labels.length === 0 && group.pins.length === 0 && group.wires.length > 0;
+    if (isUnresolvedSegment) {
+      diagnostics.push(
+        diagnostic(
+          "SCHEMATIC_ISOLATED_SEGMENT",
+          "该导线连通分量没有标签或器件 Pin 端点，已保留为未解析网络，未推断电气语义。",
+          "warning",
+          "connectivity",
+          group.wires[0]?.sourceRef,
           "preserved",
         ),
       );
@@ -249,9 +272,15 @@ function buildConnectivity(
           position: point(pin.x, pin.y),
         })),
       ],
-      segmentIds: group.segmentIds,
-      resolution: { method: "connectivity_resolved", confidence: 1 },
-      sourceRefs: [...group.labels.map((label) => label.sourceRef), ...group.pins.map((pin) => pin.sourceRef)],
+      segmentIds: group.wires.map((wire) => wire.id),
+      resolution: isUnresolvedSegment
+        ? { method: "unresolved", confidence: 0.25 }
+        : { method: "connectivity_resolved", confidence: 1 },
+      sourceRefs: [
+        ...group.labels.map((label) => label.sourceRef),
+        ...group.pins.map((pin) => pin.sourceRef),
+        ...group.wires.map((wire) => wire.sourceRef),
+      ],
     });
   }
   return nets;
@@ -289,6 +318,7 @@ function parseSchematic(
   const symbolDefinitions = parseSymbolDefinitions(root);
   const partsByReference = new Map<string, PartIr>();
   const pinAnchors: PinAnchor[] = [];
+  const powerLabels: SchematicIr["labels"] = [];
   const sourceMap: SourceRef[] = [fileRef];
   const symbolNodes = directChildren(root, "symbol");
   for (const [index, symbolNode] of symbolNodes.entries()) {
@@ -300,6 +330,25 @@ function parseSchematic(
     const nativeId = nodeUuid(symbolNode, `${reference}:${index}`);
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: symbolNode.span.line, column: symbolNode.span.column });
     sourceMap.push(ref);
+    const definition = symbolDefinitions.get(libraryId);
+    const isPowerSymbol = reference.startsWith("#PWR") || libraryId.startsWith("power:");
+    if (isPowerSymbol) {
+      if (at) {
+        const powerPin = definition?.pins[0];
+        const [x, y] = powerPin
+          ? transformPoint(powerPin.x, powerPin.y, at[0], at[1], at[2])
+          : [at[0], at[1]];
+        const name = fields.Value || libraryId.replace(/^power:/, "") || reference;
+        powerLabels.push({
+          id: stableId("label", schematicId, nativeId, "power"),
+          name,
+          kind: "power",
+          position: point(x, y)!,
+          sourceRef: ref,
+        });
+      }
+      continue;
+    }
     const existing = partsByReference.get(reference);
     const partId = existing?.id ?? stableId("part", schematicId, reference);
     const unitId = stableId("symbol-unit", partId, unit, nativeId);
@@ -325,7 +374,6 @@ function parseSchematic(
     part.sourceRefs.push(ref);
     partsByReference.set(reference, part);
 
-    const definition = symbolDefinitions.get(libraryId);
     if (!definition) {
       diagnostics.push(
         diagnostic(
@@ -345,8 +393,10 @@ function parseSchematic(
       pinAnchors.push({
         id: stableId("pin", unitId, pinDefinition.number),
         partId,
+        symbolUnitId: unitId,
         reference,
         pin: pinDefinition.number,
+        name: pinDefinition.name,
         x,
         y,
         sourceRef: ref,
@@ -376,17 +426,20 @@ function parseSchematic(
     ["global_label", "global"],
     ["hierarchical_label", "hierarchical"],
   ];
-  const labels = labelKinds.flatMap(([nodeHead, kind]) =>
-    directChildren(root, nodeHead).flatMap((labelNode, index) => {
-      const at = nodeAt(labelNode);
-      const name = atom(labelNode.items[1]);
-      if (!at || name === undefined) return [];
-      const nativeId = nodeUuid(labelNode, `${nodeHead}:${index}`);
-      const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: labelNode.span.line, column: labelNode.span.column });
-      sourceMap.push(ref);
-      return [{ id: stableId("label", schematicId, nativeId), name, kind, position: point(at[0], at[1])!, sourceRef: ref }];
-    }),
-  );
+  const labels = [
+    ...labelKinds.flatMap(([nodeHead, kind]) =>
+      directChildren(root, nodeHead).flatMap((labelNode, index) => {
+        const at = nodeAt(labelNode);
+        const name = atom(labelNode.items[1]);
+        if (!at || name === undefined) return [];
+        const nativeId = nodeUuid(labelNode, `${nodeHead}:${index}`);
+        const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: labelNode.span.line, column: labelNode.span.column });
+        sourceMap.push(ref);
+        return [{ id: stableId("label", schematicId, nativeId), name, kind, position: point(at[0], at[1])!, sourceRef: ref }];
+      }),
+    ),
+    ...powerLabels,
+  ];
   const noConnects = directChildren(root, "no_connect")
     .map((noConnect) => nodeAt(noConnect))
     .filter((at): at is [string, string, string] => Boolean(at))
@@ -399,6 +452,16 @@ function parseSchematic(
     rootSheetId: stableId("sheet", schematicId, "/"),
     sheets: [{ id: stableId("sheet", schematicId, "/"), name: withoutExtension(asset.fileName), instancePath: "/" }],
     symbolInstanceIds: Array.from(partsByReference.values()).flatMap((part) => part.symbolUnits.map((unit) => unit.id)),
+    pins: pinAnchors.map((pinAnchor) => ({
+      id: pinAnchor.id,
+      partId: pinAnchor.partId,
+      symbolUnitId: pinAnchor.symbolUnitId,
+      reference: pinAnchor.reference,
+      number: pinAnchor.pin,
+      name: pinAnchor.name,
+      position: point(pinAnchor.x, pinAnchor.y)!,
+      sourceRef: pinAnchor.sourceRef,
+    })),
     wires,
     junctions,
     labels,
@@ -428,12 +491,12 @@ function parseSchematic(
 
 function layerRole(name: string): { role: string; side: PcbIr["layers"][number]["side"] } {
   const lower = name.toLowerCase();
-  const side = lower.startsWith("f.") ? "front" : lower.startsWith("b.") ? "back" : lower.includes("in") && lower.includes("cu") ? "inner" : "unknown";
-  if (lower.includes("cu")) return { role: "copper", side };
+  if (lower === "edge.cuts") return { role: "edge", side: "both" };
+  const side = lower.startsWith("f.") ? "front" : lower.startsWith("b.") ? "back" : /^in\d+\.cu$/.test(lower) ? "inner" : "unknown";
+  if (/^(f|b|in\d+)\.cu$/.test(lower)) return { role: "copper", side };
   if (lower.includes("mask")) return { role: "solder_mask", side };
   if (lower.includes("paste")) return { role: "paste", side };
   if (lower.includes("silk")) return { role: "silkscreen", side };
-  if (lower.includes("edge.cuts")) return { role: "edge", side: "both" };
   if (lower.includes("courtyard")) return { role: "courtyard", side };
   if (lower.includes("fab")) return { role: "fabrication", side };
   return { role: "user", side };
@@ -471,6 +534,11 @@ function parsePcb(
     const name = atom(netNode.items[2]);
     if (id !== undefined && name !== undefined) netMap.set(id, name);
   }
+  const canonicalNetId = (sourceNativeNetId?: string): string | undefined => {
+    if (!sourceNativeNetId || sourceNativeNetId === "0") return undefined;
+    const name = netMap.get(sourceNativeNetId);
+    return name === undefined ? undefined : stableId("pcb-net", pcbId, sourceNativeNetId, name);
+  };
 
   const pads: PcbIr["pads"] = [];
   const footprints: PcbIr["footprints"] = [];
@@ -499,8 +567,8 @@ function parsePcb(
       const worldAt = localAt && at ? transformPoint(localAt[0], localAt[1], at[0], at[1], at[2]) : localAt ? [localAt[0], localAt[1]] : undefined;
       const size = firstChild(padNode, "size");
       const net = firstChild(padNode, "net");
-      const netId = atom(net?.items[1]);
-      const netName = atom(net?.items[2]) ?? (netId ? netMap.get(netId) : undefined);
+      const sourceNativeNetId = atom(net?.items[1]);
+      const netName = atom(net?.items[2]) ?? (sourceNativeNetId ? netMap.get(sourceNativeNetId) : undefined);
       const layersList = firstChild(padNode, "layers");
       const padNativeId = childValue(padNode, "uuid") ?? `${nativeId}:pad:${number}:${padIndex}`;
       const padId = stableId("pad", id, padNativeId);
@@ -516,7 +584,8 @@ function parsePcb(
         position: worldAt ? point(worldAt[0], worldAt[1]) : undefined,
         size: size ? { x: numericString(atom(size.items[1])), y: numericString(atom(size.items[2])), unit: "mm" } : undefined,
         layers: layersList ? layersList.items.slice(1).map(atom).filter((item): item is string => Boolean(item)) : [],
-        netId,
+        netId: canonicalNetId(sourceNativeNetId),
+        sourceNativeNetId,
         netName,
         sourceRef: padRef,
       });
@@ -542,6 +611,7 @@ function parsePcb(
     const nativeId = nodeUuid(trackNode, `${head(trackNode)}:${index}`);
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: trackNode.span.line, column: trackNode.span.column });
     sourceMap.push(ref);
+    const sourceNativeNetId = childValue(trackNode, "net");
     return {
       id: stableId("track", pcbId, nativeId),
       kind: head(trackNode) === "arc" ? "arc" : "segment",
@@ -550,7 +620,8 @@ function parsePcb(
       mid: mid ? point(atom(mid.items[1]), atom(mid.items[2])) : undefined,
       width: childValue(trackNode, "width"),
       layer: childValue(trackNode, "layer"),
-      netId: childValue(trackNode, "net"),
+      netId: canonicalNetId(sourceNativeNetId),
+      sourceNativeNetId,
       sourceRef: ref,
     } as PcbIr["tracks"][number];
   });
@@ -560,13 +631,15 @@ function parsePcb(
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: viaNode.span.line, column: viaNode.span.column });
     sourceMap.push(ref);
     const layerList = firstChild(viaNode, "layers");
+    const sourceNativeNetId = childValue(viaNode, "net");
     return {
       id: stableId("via", pcbId, nativeId),
       position: at ? point(at[0], at[1]) : undefined,
       size: childValue(viaNode, "size"),
       drill: childValue(viaNode, "drill"),
       layers: layerList ? layerList.items.slice(1).map(atom).filter((item): item is string => Boolean(item)) : [],
-      netId: childValue(viaNode, "net"),
+      netId: canonicalNetId(sourceNativeNetId),
+      sourceNativeNetId,
       sourceRef: ref,
     };
   });
@@ -575,9 +648,11 @@ function parsePcb(
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: zoneNode.span.line, column: zoneNode.span.column });
     sourceMap.push(ref);
     const layersNode = firstChild(zoneNode, "layers");
+    const sourceNativeNetId = childValue(zoneNode, "net");
     return {
       id: stableId("zone", pcbId, nativeId),
-      netId: childValue(zoneNode, "net"),
+      netId: canonicalNetId(sourceNativeNetId),
+      sourceNativeNetId,
       layers: layersNode
         ? layersNode.items.slice(1).map(atom).filter((item): item is string => Boolean(item))
         : [childValue(zoneNode, "layer")].filter((item): item is string => Boolean(item)),
@@ -630,10 +705,10 @@ function parsePcb(
     .filter(([id]) => id !== "0")
     .map(([nativeId, name]) => {
       const id = stableId("pcb-net", pcbId, nativeId, name);
-      const netPads = pads.filter((pad) => pad.netId === nativeId);
-      const netTracks = tracks.filter((track) => track.netId === nativeId);
-      const netVias = vias.filter((via) => via.netId === nativeId);
-      const netZones = zones.filter((zone) => zone.netId === nativeId);
+      const netPads = pads.filter((pad) => pad.netId === id);
+      const netTracks = tracks.filter((track) => track.netId === id);
+      const netVias = vias.filter((via) => via.netId === id);
+      const netZones = zones.filter((zone) => zone.netId === id);
       return {
         id,
         domain: "pcb_physical",
@@ -728,6 +803,52 @@ export function parseKicad(inputs: InputAsset[], inventory: SourceAsset[]): Kica
       continue;
     }
     if ([".kicad_sym", ".kicad_mod"].includes(asset.extension)) {
+      let libraryDetails: Record<string, unknown> = {};
+      try {
+        const root = rootExpression(parseSExpression(decodeUtf8(input.bytes)));
+        if (!root) throw new Error("root missing");
+        if (asset.extension === ".kicad_sym") {
+          const symbols = directChildren(root, "symbol").map((symbol) => {
+            const name = atom(symbol.items[1]) ?? "unnamed";
+            return {
+              name,
+              pinCount: allDescendants(symbol, "pin").length,
+              unitCount: directChildren(symbol, "symbol").length || 1,
+            };
+          });
+          libraryDetails = { objectCount: symbols.length, symbols };
+          output.recognized += symbols.length + symbols.reduce((sum, symbol) => sum + symbol.pinCount, 0);
+          output.normalized += symbols.length + symbols.reduce((sum, symbol) => sum + symbol.pinCount, 0);
+        } else {
+          const pads = directChildren(root, "pad").map((pad, index) => ({
+            number: atom(pad.items[1]) ?? String(index + 1),
+            type: atom(pad.items[2]) ?? "unknown",
+            shape: atom(pad.items[3]) ?? "unknown",
+          }));
+          libraryDetails = {
+            objectCount: 1,
+            footprints: [{
+              name: atom(root.items[1]) ?? withoutExtension(asset.fileName),
+              padCount: pads.length,
+              pads,
+            }],
+          };
+          output.recognized += 1 + pads.length;
+          output.normalized += 1 + pads.length;
+        }
+      } catch {
+        output.diagnostics.push(
+          diagnostic(
+            "PARSER_SYNTAX_ERROR",
+            `${asset.relativePath} 的 KiCad 库 S-expression 无法解析，已保留原文件。`,
+            "error",
+            "syntax",
+            sourceRef(asset.id, asset.relativePath),
+            "preserved",
+          ),
+        );
+        output.opaque += 1;
+      }
       output.libraries.push({
         id: stableId("library", asset.id),
         name: basename(asset.relativePath),
@@ -735,16 +856,15 @@ export function parseKicad(inputs: InputAsset[], inventory: SourceAsset[]): Kica
         resolutionSource: "project_local",
         resolutionStatus: "preserved",
         sourceAssetId: asset.id,
+        ...libraryDetails,
       });
-      output.recognized += 1;
-      output.normalized += 1;
       output.sourceMap.push(sourceRef(asset.id, asset.relativePath));
       continue;
     }
     output.opaqueNodes.push({ recordType: `kicad_asset${asset.extension}`, sourcePath: asset.relativePath, payloadHash: asset.sha256 });
     output.opaque += 1;
   }
-  if (!output.schematics.length && !output.pcbs.length) {
+  if (!output.schematics.length && !output.pcbs.length && !output.libraries.length) {
     output.diagnostics.push(diagnostic("PROJECT_ENTRY_NOT_FOUND", "未找到可解析的 .kicad_sch 或 .kicad_pcb 入口。", "error", "structure"));
   }
   return output;

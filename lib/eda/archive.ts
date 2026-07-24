@@ -10,6 +10,33 @@ const LIMITS = {
   maxCompressionRatio: 200,
 };
 
+function hasZipSignature(bytes: Uint8Array): boolean {
+  if (bytes.length < 4) return false;
+  const signature = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+  return signature === 0x04034b50 || signature === 0x06054b50 || signature === 0x08074b50;
+}
+
+type IgnoredEntryKind = "platform" | "history" | "vcs" | "eda_local";
+
+function ignoredEntryKind(path: string): IgnoredEntryKind | undefined {
+  const segments = path.replace(/\\/g, "/").split("/");
+  const name = segments.at(-1) ?? "";
+  if (segments.includes("__MACOSX") || segments.some((segment) => segment.startsWith("._")) || segments.at(-1) === ".DS_Store") {
+    return "platform";
+  }
+  if (segments.includes(".history")) return "history";
+  if (segments.some((segment) => [".git", ".hg", ".svn"].includes(segment))) return "vcs";
+  if (
+    name.toLowerCase().endsWith(".kicad_prl") ||
+    name === "fp-info-cache" ||
+    /^~.+\.lck$/i.test(name) ||
+    segments.some((segment) => /-backups$/i.test(segment))
+  ) {
+    return "eda_local";
+  }
+  return undefined;
+}
+
 function safePath(path: string): string {
   const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
   if (
@@ -80,21 +107,32 @@ export async function filesToInputAssets(files: File[]): Promise<{
   if (!files.length) throw new Error("SOURCE_PACKAGE_EMPTY: select at least one file");
   const diagnostics: ParseDiagnostic[] = [];
   const assets: InputAsset[] = [];
+  const ignoredEntries: Record<IgnoredEntryKind, number> = { platform: 0, history: 0, vcs: 0, eda_local: 0 };
   let totalBytes = 0;
 
   for (const file of files) {
+    const suppliedPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+    const suppliedPathKind = ignoredEntryKind(suppliedPath);
+    if (suppliedPathKind) {
+      ignoredEntries[suppliedPathKind] += 1;
+      continue;
+    }
     totalBytes += file.size;
     if (totalBytes > LIMITS.maxCompressedBytes) {
       throw new Error("PARSER_RESOURCE_LIMIT: upload selection exceeds 75 MB");
     }
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const suppliedPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-    if (extensionOf(file.name) === ".zip") {
+    if (hasZipSignature(bytes)) {
       inspectZip(bytes);
       const entries = unzipSync(bytes);
       for (const [entryPath, entryBytes] of Object.entries(entries)) {
         if (entryPath.endsWith("/")) continue;
         const path = safePath(entryPath);
+        const entryKind = ignoredEntryKind(path);
+        if (entryKind) {
+          ignoredEntries[entryKind] += 1;
+          continue;
+        }
         if ([".zip", ".7z", ".rar", ".tar", ".gz"].includes(extensionOf(path))) {
           diagnostics.push(
             diagnostic(
@@ -117,6 +155,46 @@ export async function filesToInputAssets(files: File[]): Promise<{
     }
   }
 
+  if (ignoredEntries.platform > 0) {
+    diagnostics.push(
+      diagnostic(
+        "ARCHIVE_METADATA_IGNORED",
+        `已忽略 ${ignoredEntries.platform} 个平台元数据条目（__MACOSX、AppleDouble 或 .DS_Store）。`,
+        "information",
+        "structure",
+      ),
+    );
+  }
+  if (ignoredEntries.history > 0) {
+    diagnostics.push(
+      diagnostic(
+        "PROJECT_HISTORY_IGNORED",
+        `已忽略 ${ignoredEntries.history} 个本地历史条目（.history）；历史快照不会作为当前工程重复解析。`,
+        "information",
+        "structure",
+      ),
+    );
+  }
+  if (ignoredEntries.vcs > 0) {
+    diagnostics.push(
+      diagnostic(
+        "VCS_METADATA_IGNORED",
+        `已忽略 ${ignoredEntries.vcs} 个版本控制元数据条目（.git、.hg 或 .svn）。`,
+        "information",
+        "structure",
+      ),
+    );
+  }
+  if (ignoredEntries.eda_local > 0) {
+    diagnostics.push(
+      diagnostic(
+        "EDA_LOCAL_STATE_IGNORED",
+        `已忽略 ${ignoredEntries.eda_local} 个 EDA 本机状态、缓存或备份条目（如 .kicad_prl、fp-info-cache、锁文件或备份目录）。`,
+        "information",
+        "structure",
+      ),
+    );
+  }
   if (assets.length > LIMITS.maxEntries) throw new Error("PARSER_RESOURCE_LIMIT: too many files");
   return { assets, diagnostics };
 }

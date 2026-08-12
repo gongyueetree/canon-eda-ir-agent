@@ -34,8 +34,9 @@ import { createDemoFiles, filesToInputAssets } from "../lib/eda/archive";
 import { createIrDomainExport, IR_DOMAIN_KEYS, type IrDomainKey } from "../lib/eda/export";
 import { parseEdaProject } from "../lib/eda/parse";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
+import { Board3DViewer, BomViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
 
-type ResultTab = "overview" | "inventory" | "project" | "schematic" | "pcb" | "parts" | "nets" | "diagnostics" | "json";
+type ResultTab = "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
 type AppView = "workspace" | "history" | "adapters";
 type SavedProject = {
   id: string;
@@ -58,10 +59,10 @@ const PARSE_STAGES = [
 ];
 
 const SUPPORT_MATRIX = [
-  { format: "KiCad 5–9+", level: "语义解析", tone: "ready", detail: "Legacy Sch / Project / Sch / PCB / Symbol / Footprint" },
-  { format: "EasyEDA 标准版", level: "语义解析", tone: "ready", detail: "JSON / docType 多页 / Sch + PCB Shape" },
-  { format: "JLCEDA Pro", level: "部分语义", tone: "partial", detail: "EPro ZIP / Project manifest / ESch + EPCB JSONL" },
-  { format: "Altium", level: "仅结构", tone: "planned", detail: "PrjPcb / DsnWrk / OutJob + CFB 原样保留" },
+  { format: "KiCad 5–9+", level: "在线查看", tone: "ready", detail: "Sch / PCB / 3D IR Preview / BOM / Netlist" },
+  { format: "EasyEDA 标准版", level: "在线查看", tone: "ready", detail: "JSON 多页 Sch / PCB / BOM / Netlist" },
+  { format: "JLCEDA Pro", level: "在线查看", tone: "partial", detail: "EPro / ESch / EPCB 已映射对象在线显示" },
+  { format: "Altium", level: "结构预览", tone: "planned", detail: "PrjPcb 元数据；二进制 CFB 几何适配中" },
 ];
 
 const DOMAIN_NAV: Array<{
@@ -210,7 +211,7 @@ function EmptyState({ onDemo, onUpload }: { onDemo: () => void; onUpload: () => 
       <div className="eyebrow"><span>Agent 16</span> · deterministic parser</div>
       <h1>把 EDA 工程转成<br /><em>可验证的统一数据。</em></h1>
       <p className="hero-copy">
-        安全解析 KiCad、Altium、嘉立创EDA / EasyEDA 工程，输出 Project、Schematic、PCB、Part 与 Net IR，并保留每一条证据和未知对象。
+        安全解析 KiCad、Altium、嘉立创EDA / EasyEDA 工程，在线查看原理图、PCB 2D、板级 3D、BOM 与 Netlist，同时输出可追溯的统一 IR。
       </p>
       <div className="hero-actions">
         <button className="primary-button" onClick={onUpload}><HardDriveUpload size={18} /> 上传工程</button>
@@ -247,6 +248,7 @@ export default function EdaWorkbench() {
   const [persistedProjectId, setPersistedProjectId] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [expandedNetId, setExpandedNetId] = useState<string | null>(null);
+  const [netQuery, setNetQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const parseRunIdRef = useRef(0);
@@ -291,6 +293,7 @@ export default function EdaWorkbench() {
     setPersistedProjectId(null);
     setCopyFeedback(null);
     setExpandedNetId(null);
+    setNetQuery("");
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const intake = await filesToInputAssets(files);
@@ -328,6 +331,7 @@ export default function EdaWorkbench() {
     setPersistedProjectId(null);
     setCopyFeedback(null);
     setExpandedNetId(null);
+    setNetQuery("");
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (directoryInputRef.current) directoryInputRef.current.value = "";
   };
@@ -363,6 +367,7 @@ export default function EdaWorkbench() {
       setPersistedProjectId(id);
       setCopyFeedback(null);
       setExpandedNetId(null);
+      setNetQuery("");
     } catch {
       setError("无法读取数据库中的 IR Bundle。");
     }
@@ -445,10 +450,11 @@ export default function EdaWorkbench() {
         { id: "overview", label: "概览" },
         { id: "inventory", label: "源文件", count: bundle.inventory.length },
         { id: "project", label: "Project IR", count: 1 },
-        { id: "schematic", label: "原理图", count: bundle.schematics.length },
-        { id: "pcb", label: "PCB", count: bundle.pcbs.length },
-        { id: "parts", label: "器件", count: bundle.parts.length },
-        { id: "nets", label: "网络", count: bundle.nets.length },
+        { id: "schematic", label: "原理图查看器", count: bundle.schematics.length },
+        { id: "pcb", label: "PCB 2D", count: bundle.pcbs.length },
+        { id: "3d", label: "3D", count: bundle.pcbs.length },
+        { id: "parts", label: "BOM", count: bundle.parts.length },
+        { id: "nets", label: "Netlist", count: bundle.nets.length },
         { id: "diagnostics", label: "诊断", count: bundle.diagnostics.length },
         { id: "json", label: "IR JSON" },
       ]
@@ -479,6 +485,20 @@ export default function EdaWorkbench() {
               {item.domain === "project" ? <FileJson2 size={16} /> : item.domain === "schematic" ? <Zap size={16} /> : item.domain === "pcb" ? <CircuitBoard size={16} /> : item.domain === "part" ? <PackageCheck size={16} /> : <Network size={16} />}
               <span>{item.label}</span>
               {bundle && <b>{domainCount(item.domain)}</b>}
+            </button>
+          ))}
+        </div>
+        <div className="nav-caption viewer-caption">ONLINE VIEWERS</div>
+        <div className="viewer-nav-list">
+          {[
+            { tab: "schematic" as ResultTab, label: "原理图", icon: <Zap size={16} />, count: bundle?.schematics.length },
+            { tab: "pcb" as ResultTab, label: "PCB 2D", icon: <CircuitBoard size={16} />, count: bundle?.pcbs.length },
+            { tab: "3d" as ResultTab, label: "PCB 3D", icon: <Box size={16} />, count: bundle?.pcbs.length },
+            { tab: "parts" as ResultTab, label: "BOM", icon: <PackageCheck size={16} />, count: bundle?.parts.length },
+            { tab: "nets" as ResultTab, label: "Netlist", icon: <Network size={16} />, count: bundle?.nets.length },
+          ].map((item) => (
+            <button type="button" className={bundle && view === "workspace" && activeTab === item.tab ? "active" : ""} disabled={!bundle} onClick={() => openDomain(item.tab)} key={item.tab}>
+              {item.icon}<span>{item.label}</span>{bundle && <b>{item.count}</b>}
             </button>
           ))}
         </div>
@@ -631,16 +651,14 @@ export default function EdaWorkbench() {
                 )}
 
                 {activeTab === "schematic" && (
-                  <div className="object-grid">
-                    {bundle.schematics.map((schematic) => <article className="panel object-card" key={schematic.id}><div className="object-icon schematic"><Zap size={21} /></div><div><small>SCHEMATIC IR</small><h3>{schematic.name}</h3><p>{schematic.sheets.length} sheets · {schematic.symbolInstanceIds.length} symbol units</p></div><div className="object-stats"><span><b>{schematic.wires.length}</b> wires</span><span><b>{schematic.junctions.length}</b> junctions</span><span><b>{schematic.labels.length}</b> labels</span></div></article>)}
-                    {bundle.schematics.length === 0 && <div className="empty-panel"><Zap size={34} /><h3>没有规范化的 Schematic IR</h3><p>源文件可能不含原理图，或当前适配器只提供结构级摄取。</p></div>}
-                  </div>
+                  <SchematicViewer bundle={bundle} />
                 )}
 
                 {activeTab === "pcb" && (
                   <div className="object-grid">
+                    <PcbViewer bundle={bundle} />
                     {bundle.pcbs.map((pcb) => (
-                      <article className="panel pcb-card" key={pcb.id}>
+                      <article className="panel pcb-card compact-pcb-card" key={pcb.id}>
                         <div className="pcb-card-head"><div className="object-icon pcb"><CircuitBoard size={21} /></div><div><small>PCB IR · mm</small><h3>{pcb.name}</h3></div><span>{pcb.layers.filter((layer) => layer.copper).length} copper layers</span></div>
                         {pcb.physicalDimensions && (
                           <div className="pcb-dimensions">
@@ -654,23 +672,21 @@ export default function EdaWorkbench() {
                         <div className="layer-chips">{pcb.layers.slice(0, 12).map((layer) => <span className={layer.copper ? "copper" : ""} key={layer.id}>{layer.name}</span>)}</div>
                       </article>
                     ))}
-                    {bundle.pcbs.length === 0 && <div className="empty-panel"><CircuitBoard size={34} /><h3>没有规范化的 PCB IR</h3><p>专有 PCB 容器会保留 Hash 和诊断，但不会猜测 Pad、Track 或 Net。</p></div>}
                   </div>
                 )}
 
+                {activeTab === "3d" && <Board3DViewer bundle={bundle} />}
+
                 {activeTab === "parts" && (
-                  <article className="panel table-panel">
-                    <div className="panel-title"><div><PackageCheck size={18} /><strong>Part IR</strong></div><span>Symbol / Part / Footprint identity separated</span></div>
-                    <div className="data-table"><table><thead><tr><th>RefDes</th><th>Value</th><th>Symbol units</th><th>Footprint</th><th>Variant</th><th>Pin ↔ Pad</th><th>Source</th></tr></thead><tbody>{bundle.parts.map((part) => <tr key={part.id}><td><strong className="refdes">{part.reference}</strong></td><td>{part.value || "—"}</td><td>{part.symbolUnits.map((unit) => unit.unit).join(", ")}</td><td>{part.footprint ?? <span className="muted">unresolved</span>}</td><td><span className={`variant ${part.variantStatus}`}>{part.variantStatus}</span></td><td>{part.pinPadMap.filter((item) => item.status === "verified").length}/{part.pinPadMap.length || "—"}</td><td><code>{part.sourceRefs[0]?.nativeId?.slice(0, 8) ?? part.sourceRefs[0]?.path}</code></td></tr>)}</tbody></table></div>
-                  </article>
+                  <BomViewer bundle={bundle} />
                 )}
 
                 {activeTab === "nets" && (
                   <article className="panel table-panel">
-                    <div className="panel-title"><div><Network size={18} /><strong>Net IR</strong></div><span>Logical 与 Physical 分域保存</span></div>
+                    <div className="panel-title"><div><Network size={18} /><strong>Netlist · 连接关系</strong></div><NetlistToolbar bundle={bundle} query={netQuery} onQuery={setNetQuery} /></div>
                     <div className="net-summary"><span><i className="logical" /> {bundle.summary.logicalNets} Schematic logical</span><span><i className="physical" /> {bundle.summary.pcbNets} PCB physical</span><span><GitCompareArrows size={15} /> {bundle.crossDocumentLinks.filter((link) => link.type === "schematic_net_to_pcb_net" && link.status === "verified").length} verified cross-links</span></div>
                     <div className="data-table"><table><thead><tr><th>网络名称</th><th>Domain</th><th>Endpoints</th><th>Segments</th><th>Resolution</th><th>Confidence</th></tr></thead><tbody>
-                      {bundle.nets.flatMap((net) => {
+                      {bundle.nets.filter((net) => !netQuery || [net.canonicalName, ...net.displayNames, ...net.endpoints.flatMap((endpoint) => Object.values(endpoint.identifier))].join(" ").toLowerCase().includes(netQuery.toLowerCase())).flatMap((net) => {
                         const expanded = expandedNetId === net.id;
                         const relatedLinks = bundle.crossDocumentLinks.filter((link) => link.sourceEntityId === net.id || link.targetEntityId === net.id);
                         return [

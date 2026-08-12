@@ -19,12 +19,15 @@ test("server-renders the Canonical EDA IR workbench", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>CANON · EDA Canonical IR Agent<\/title>/i);
+  assert.match(html, /<title>CANON · EDA Online Viewer<\/title>/i);
   assert.match(html, /把 EDA 工程转成/);
   assert.match(html, /可验证的统一数据/);
   assert.match(html, /不把工程发送给模型/);
   assert.match(html, /Project IR/);
   assert.match(html, /aria-label="打开 Project IR"/);
+  assert.match(html, /ONLINE VIEWERS/);
+  assert.match(html, /PCB 3D/);
+  assert.match(html, /Netlist/);
   assert.match(html, /KiCad 5–9\+/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });

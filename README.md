@@ -14,6 +14,18 @@ CANON 是一个只读、确定性的 EDA 工程解析 Agent。它在浏览器中
 - Fidelity / Completeness Report
 - Part ↔ Footprint、Pin ↔ Pad、Logical Net ↔ PCB Net 链接
 
+## 在线查看器
+
+解析完成后可直接在浏览器中查看：
+
+- **原理图**：按文档/Sheet 切换，显示 Symbol、Pin、Wire、Junction、Label，并可按网络高亮。
+- **PCB 2D**：显示板框、Footprint、Pad、Track、Via，支持图层显隐、网络高亮与缩放。
+- **PCB 3D**：根据 PCB IR 的板框、尺寸、器件位置和旋转生成可旋转/调整视角的板级几何预览。
+- **BOM**：按 Value、Footprint、MPN 和装配状态合并，支持搜索、过滤与 CSV 下载。
+- **Netlist**：显示逻辑/物理网络、具体 Endpoint 和跨文档链接，支持搜索、展开与 CSV 下载。
+
+3D 页面是基于 Canonical PCB IR 的板级几何预览，不加载或渲染 STEP/WRL 实体模型。KiCad 与 EasyEDA Standard 的已规范化几何可直接显示；JLCEDA Pro 显示当前已映射 Record。Altium 二进制 SchDoc/PcbDoc 目前仍是 CFB 结构级摄取，页面会明确显示不可视原因，不会伪造器件或连线。生产级 Altium 在线查看需要完整的版本化 CFB Record Adapter，或由 Altium 导出 IPC-2581 / ODB++ / Gerber、BOM、Netlist 等开放交换数据。
+
 ## 真实能力边界
 
 | 格式 | 当前能力 | 说明 |

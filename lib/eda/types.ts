@@ -125,6 +125,8 @@ export type SchematicIr = {
   name: string;
   rootSheetId: string;
   sheets: Array<{ id: string; name: string; instancePath: string }>;
+  sheetBoxes?: Array<{ id: string; name: string; file: string; position: IrPoint; size: { x: string; y: string }; pins: Array<{ name: string; position: IrPoint }> }>;
+  graphics?: Array<{ id: string; symbolUnitId: string; points: IrPoint[]; closed: boolean }>;
   symbolInstanceIds: string[];
   pins: Array<{
     id: string;
@@ -194,6 +196,7 @@ export type PcbIr = {
     reference: string;
     value: string;
     libraryIdentifier: string;
+    graphics?: Array<{ id: string; layer: string; kind: "line" | "arc" | "circle" | "rectangle"; geometry: Record<string, unknown> }>;
     position?: IrPoint;
     rotation: string;
     side: "front" | "back" | "unknown";
@@ -207,6 +210,8 @@ export type PcbIr = {
     number: string;
     padType: string;
     shape: string;
+    rotation?: string;
+    drill?: { x: string; y: string };
     position?: IrPoint;
     size?: { x: string; y: string; unit: "mm" };
     layers: string[];
@@ -261,9 +266,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.1.0";
+    agentVersion: "1.2.0";
     adapterId: string;
-    adapterVersion: "1.1.0";
+    adapterVersion: "1.2.0";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

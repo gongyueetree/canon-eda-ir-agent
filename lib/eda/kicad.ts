@@ -1,3 +1,4 @@
+import { arcPoints } from "./view-geometry";
 import {
   allDescendants,
   atom,
@@ -328,6 +329,7 @@ function parseSchematic(
   const partsByReference = new Map<string, PartIr>();
   const pinAnchors: PinAnchor[] = [];
   const powerLabels: SchematicIr["labels"] = [];
+  const graphics: NonNullable<SchematicIr["graphics"]> = [];
   const sourceMap: SourceRef[] = [fileRef];
   const symbolNodes = directChildren(root, "symbol");
   for (const [index, symbolNode] of symbolNodes.entries()) {
@@ -399,6 +401,24 @@ function parseSchematic(
       continue;
     }
     if (!at) continue;
+    const embedded = directChildren(firstChild(root, "lib_symbols") ?? root, "symbol").find(n => atom(n.items[1]) === libraryId);
+    const mirror = childValue(symbolNode, "mirror");
+    const drawPoint = (x: string, y: string) => point(...schematicPinPoint(mirror === "y" ? String(-Number(x)) : x, mirror === "x" ? String(-Number(y)) : y, at[0], at[1], at[2]))!;
+    for (const sub of embedded ? directChildren(embedded, "symbol") : []) {
+      const suffix = (atom(sub.items[1]) ?? "").match(/_(\d+)_(\d+)$/);
+      if (suffix && (Number(suffix[1]) !== 0 && Number(suffix[1]) !== unit || Number(suffix[2]) > 1)) continue;
+      for (const node of sub.items.filter((n): n is SList => n.kind === "list")) {
+        const kind = head(node);
+        let coords: Array<[string, string]> = [];
+        const xy = (key: string): [string, string] => { const n = firstChild(node, key); return [atom(n?.items[1]) ?? "0", atom(n?.items[2]) ?? "0"]; };
+        if (kind === "rectangle") { const a = xy("start"), b = xy("end"); coords = [a, [b[0], a[1]], b, [a[0], b[1]], a]; }
+        if (kind === "polyline") coords = directChildren(firstChild(node, "pts") ?? node, "xy").map(n => [atom(n.items[1]) ?? "0", atom(n.items[2]) ?? "0"]);
+        if (kind === "circle") { const c = xy("center"), r = Number(childValue(node, "radius")); coords = Array.from({length:49}, (_, i) => [String(Number(c[0])+r*Math.cos(i*Math.PI/24)), String(Number(c[1])+r*Math.sin(i*Math.PI/24))]); }
+        if (kind === "arc") { const a=xy("start"), m=xy("mid"), b=xy("end"); coords=arcPoints({x:Number(a[0]),y:Number(a[1])},{x:Number(m[0]),y:Number(m[1])},{x:Number(b[0]),y:Number(b[1])}).map(p=>[String(p.x),String(p.y)]); }
+        if (kind === "pin") { const a = nodeAt(node); if (a) { const r = Number(a[2])*Math.PI/180, len = Number(childValue(node, "length") ?? 0); coords = [[a[0],a[1]], [String(Number(a[0])+len*Math.cos(r)),String(Number(a[1])+len*Math.sin(r))]]; } }
+        if (coords.length) graphics.push({id: stableId("graphic", unitId, graphics.length), symbolUnitId:unitId, points: coords.map(([x,y]) => drawPoint(x,y)), closed: kind === "rectangle" || kind === "circle"});
+      }
+    }
     for (const pinDefinition of definition.pins) {
       const [x, y] = schematicPinPoint(pinDefinition.x, pinDefinition.y, at[0], at[1], at[2]);
       pinAnchors.push({
@@ -463,6 +483,12 @@ function parseSchematic(
     name: withoutExtension(asset.fileName),
     rootSheetId: stableId("sheet", schematicId, "/"),
     sheets: [{ id: stableId("sheet", schematicId, "/"), name: withoutExtension(asset.fileName), instancePath: "/" }],
+    graphics,
+    sheetBoxes: directChildren(root, "sheet").flatMap((node, index) => {
+      const at = nodeAt(node), size = firstChild(node, "size"); if (!at || !size) return [];
+      const fields = propertyMap(node);
+      return [{ id: stableId("sheet-box", schematicId, index), name: fields.Sheetname ?? fields["Sheet name"] ?? "Sheet", file: fields.Sheetfile ?? fields["Sheet file"] ?? "", position: point(at[0],at[1])!, size: {x: atom(size.items[1]) ?? "0", y: atom(size.items[2]) ?? "0"}, pins: directChildren(node,"pin").flatMap(pin => { const p = nodeAt(pin); return p ? [{name: atom(pin.items[1]) ?? "", position: point(p[0],p[1])!}] : []; }) }];
+    }),
     symbolInstanceIds: Array.from(partsByReference.values()).flatMap((part) => part.symbolUnits.map((unit) => unit.id)),
     pins: pinAnchors.map((pinAnchor) => ({
       id: pinAnchor.id,
@@ -921,6 +947,7 @@ function outlineGeometry(
     geometry.center = irPointFromNumeric(sourceStart);
     geometry.start = irPointFromNumeric(sourceEnd);
     geometry.end = irPointFromNumeric(calculatedEnd);
+    geometry.mid = irPointFromNumeric(rotateNumericPoint(sourceEnd, sourceStart, angle / 2));
     geometry.angle = cleanNumber(angle);
     return geometry;
   }
@@ -1125,7 +1152,7 @@ function parsePcb(
       const padType = atom(padNode.items[2]) ?? "unknown";
       const shape = atom(padNode.items[3]) ?? "unknown";
       const localAt = nodeAt(padNode);
-      const worldAt = localAt && at ? transformPoint(localAt[0], localAt[1], at[0], at[1], at[2]) : localAt ? [localAt[0], localAt[1]] : undefined;
+      const worldAt = localAt && at ? transformPoint(localAt[0], localAt[1], at[0], at[1], String(-Number(at[2]))) : localAt ? [localAt[0], localAt[1]] : undefined;
       const size = firstChild(padNode, "size");
       const net = firstChild(padNode, "net");
       const sourceNativeNetId = atom(net?.items[1]);
@@ -1142,6 +1169,8 @@ function parsePcb(
         number,
         padType,
         shape,
+        rotation: localAt?.[2] ?? "0",
+        drill: (() => { const d = firstChild(padNode, "drill"); if (!d) return undefined; const oval = atom(d.items[1]) === "oval"; const x = atom(d.items[oval ? 2 : 1]) ?? "0"; return {x, y: oval ? atom(d.items[3]) ?? x : x}; })(),
         position: worldAt ? point(worldAt[0], worldAt[1]) : undefined,
         size: size ? { x: numericString(atom(size.items[1])), y: numericString(atom(size.items[2])), unit: "mm" } : undefined,
         layers: layersList ? layersList.items.slice(1).map(atom).filter((item): item is string => Boolean(item)) : [],
@@ -1156,6 +1185,7 @@ function parsePcb(
       reference: properties.Reference ?? `?${index + 1}`,
       value: properties.Value ?? "",
       libraryIdentifier,
+      graphics: ([['fp_line','line'],['fp_arc','arc'],['fp_circle','circle'],['fp_rect','rectangle']] as const).flatMap(([nodeHead,kind]) => directChildren(footprintNode,nodeHead).map((node,i)=>({id:stableId("fp-graphic",id,nodeHead,i),layer:childValue(node,"layer")??"",kind,geometry:outlineGeometry(node,kind)}))),
       position: at ? point(at[0], at[1]) : undefined,
       rotation: at?.[2] ?? "0",
       side: layer.startsWith("F.") ? "front" : layer.startsWith("B.") ? "back" : "unknown",

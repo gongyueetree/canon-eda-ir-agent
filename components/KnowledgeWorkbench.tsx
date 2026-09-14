@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CanonicalIrBundle } from "../lib/eda/types";
 import { mineKnowledge } from "../lib/knowledge/miner";
 import { applyReview } from "../lib/knowledge/review";
@@ -47,12 +47,20 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
   const [message, setMessage] = useState("");
   const [ack, setAck] = useState(false);
   const [query, setQuery] = useState("");
-  const [edit, setEdit] = useState<ReviewEdit>({});
+  const [edits, setEdits] = useState<Record<string, ReviewEdit>>({});
+  const edit = edits[selected] ?? {};
+  function setEdit(value: ReviewEdit | ((previous: ReviewEdit) => ReviewEdit)) {
+    setEdits(previous => ({...previous, [selected]: typeof value === "function" ? value(previous[selected] ?? {}) : value}));
+    setAck(false);
+  }
   useEffect(() => {
     let cancelled = false;
     mineKnowledge(bundle)
       .then((r) => {
         if (!cancelled) {
+          setEdits({});
+          setSaved(false);
+          setRevisions({});
           setResult(r);
           setBlocks(r.blocks);
           setSelected(r.blocks[0]?.id ?? "");
@@ -66,14 +74,22 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
     };
   }, [bundle]);
   const block = blocks.find((b) => b.id === selected);
-  let draft = block;
-  if (block && result) {
-    try {
-      draft = applyReview(result, block, edit);
-    } catch {
-      /* Invalid draft stays editable; the API validates before persisting. */
+  const {visibleBlocks,draftErrors} = useMemo(() => {
+  const draftErrors: string[] = [];
+  const visibleBlocks = blocks.map(original => {
+    const change = edits[original.id] ?? {};
+    try { return result && Object.keys(change).length ? applyReview(result, original, change) : original; }
+    catch (error) {
+      draftErrors.push(`${original.anchorReference}: ${error instanceof Error ? error.message : "修改无效"}`);
+      return {...original, name: change.name ?? original.name,
+        members: original.members.map(member => ({...member, ...change.members?.find(m => m.partId === member.partId)})),
+        ports: original.ports.map(port => ({...port, ...change.ports?.find(p => p.netId === port.netId)}))};
     }
-  }
+  });
+  return {visibleBlocks,draftErrors};
+  },[blocks,edits,result]);
+  const draft = visibleBlocks.find(b => b.id === selected);
+  const dirty = Object.values(edits).some(e => Object.keys(e).length > 0);
   async function save() {
     setBusy(true);
     setMessage("");
@@ -96,8 +112,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
         ),
       );
       setSaved(true);
-      setEdit({});
-      setMessage("已保存候选，审核记录将保存在数据库中。");
+      setMessage("候选已存入数据库。本地修改已保留，请点击下方“保存修改”提交当前功能块。");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -164,18 +179,18 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
           <button
             onClick={() =>
               result &&
-              download({ ...result, blocks }, "hardware-knowledge.json")
+              download({ ...result, blocks: visibleBlocks.map(b => Object.keys(edits[b.id] ?? {}).length ? {...b, status: "CANDIDATE"} : b) }, "hardware-knowledge.json")
             }
-            disabled={!result}
+            disabled={!result || draftErrors.length > 0}
           >
             导出知识 JSON
           </button>
           <button
             className="primary"
             onClick={() => void save()}
-            disabled={busy || !result}
+            disabled={busy || !result || saved}
           >
-            {busy ? "处理中…" : saved ? "刷新已保存版本" : "保存候选到知识库"}
+            {busy ? "处理中…" : saved ? "候选已保存" : "保存候选到知识库"}
           </button>
         </div>
       </header>
@@ -184,6 +199,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
           {message}
         </p>
       )}
+      {dirty && <p className="knowledge-note">有本地修改尚未提交到数据库。可先导出知识 JSON 保存当前结果。</p>}
       {!result ? (
         <p>正在分析源 IR…</p>
       ) : (
@@ -210,7 +226,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
               {w}
             </p>
           ))}
-          <div className="knowledge-layout">
+          <fieldset disabled={busy} className="knowledge-layout-fieldset"><div className="knowledge-layout">
             <aside>
               <input
                 aria-label="搜索核心 IC"
@@ -218,7 +234,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-              {blocks
+              {visibleBlocks
                 .filter((b) =>
                   `${b.name} ${b.anchorReference}`
                     .toLowerCase()
@@ -230,7 +246,6 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                     key={b.id}
                     onClick={() => {
                       setSelected(b.id);
-                      setEdit({});
                       setAck(false);
                     }}
                   >
@@ -251,6 +266,9 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
             </aside>
             {draft && block ? (
               <article>
+                <p role="status" className="knowledge-note">{Object.keys(edit).length ? "当前功能块有未提交修改；切换功能块会保留修改，导出包含修改结果。" : "选择成员处理方式后，成员与端口会即时更新。"}</p>
+                {message && <p role="status">{message}</p>}
+                {draftErrors.length > 0 && <p role="alert">请修正输入后保存：{draftErrors.join("；")}</p>}
                 <div className="knowledge-actions">
                   <input
                     aria-label="功能块名称"
@@ -286,7 +304,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                             {m.value}
                           </td>
                           <td>
-                            <select
+                            {m.partId === block.anchorId ? <span title="核心 IC 是功能块的定义锚点，必须保留">核心 IC · 固定纳入</span> : <select
                               aria-label={`${m.reference} 边界`}
                               disabled={m.partId === block.anchorId}
                               value={m.decision}
@@ -301,7 +319,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                               <option value="included">纳入</option>
                               <option value="review">待确认</option>
                               <option value="boundary">外部边界</option>
-                            </select>
+                            </select>}
                           </td>
                           <td>
                             <input
@@ -449,7 +467,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                   </label>
                   <div className="knowledge-actions">
                     <button
-                      disabled={!saved || busy}
+                      disabled={!saved || busy || draftErrors.length > 0}
                       onClick={() => void act("edit")}
                     >
                       保存修改 / 退回候选
@@ -459,6 +477,8 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                         !saved ||
                         busy ||
                         !ack ||
+                        draftErrors.length > 0 ||
+                        draft.confidence.connectivity <= 0 ||
                         draft.members.some((m) => m.decision === "review")
                       }
                       onClick={() => void act("approve")}
@@ -466,7 +486,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                       批准
                     </button>
                     <button
-                      disabled={!saved || busy}
+                      disabled={!saved || busy || draftErrors.length > 0}
                       onClick={() => void act("reject")}
                     >
                       驳回
@@ -484,6 +504,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                       发布到知识库
                     </button>
                   </div>
+                  {draft.confidence.connectivity <= 0 && <p role="status">连接证据不足，批准按钮不可用。请检查源工程与解析诊断。</p>}
                   {!saved && (
                     <small>先保存候选到知识库，才能记录审核与发布。</small>
                   )}
@@ -494,7 +515,7 @@ export function KnowledgeWorkbench({ bundle }: { bundle: CanonicalIrBundle }) {
                 <p>选择左侧功能块查看成员、端口和证据。</p>
               </article>
             )}
-          </div>
+          </div></fieldset>
         </>
       )}
       {!!bundle.pdfEvidence?.length && (

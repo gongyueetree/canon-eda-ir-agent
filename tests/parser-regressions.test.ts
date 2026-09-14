@@ -451,3 +451,21 @@ test("Altium OutJob and JLCEDA SQLite containers are honestly classified without
   assert.equal(sqliteBundle.summary.errors, 0);
   assert.equal(sqliteBundle.fidelity.overallStatus, "partial");
 });
+
+
+test("hierarchy sheet boxes, pins and embedded symbol body survive normalization", async () => {
+  const source=`(kicad_sch (version 20250114) (generator eeschema)
+    (lib_symbols (symbol "Device:R" (symbol "R_0_1" (rectangle (start -1 -2) (end 1 2))) (symbol "R_1_1" (pin passive line (at 0 3 270) (length 1) (name "~") (number "1")))))
+    (sheet (at 20 30) (size 40 25) (property "Sheetname" "Power") (property "Sheetfile" "power.kicad_sch") (pin "VIN" input (at 20 40 0)))
+    (symbol (lib_id "Device:R") (at 80 50 0) (unit 1) (property "Reference" "R1") (property "Value" "10k")))`;
+  const b=await parseEdaProject([{path:"root.kicad_sch",bytes:new TextEncoder().encode(source)}]);
+  assert.equal(b.schematics[0].sheetBoxes?.[0].file,"power.kicad_sch");
+  assert.equal(b.schematics[0].sheetBoxes?.[0].pins[0].position.y,"40");
+  const body=b.schematics[0].graphics?.find(g=>g.closed);
+  assert.equal(body?.points[0].x,"79");assert.equal(body?.points[0].y,"52");
+});
+
+test("rotated footprint uses sheet-down coordinates and preserves pad orientation and drill", async()=>{
+  const b=await parseEdaProject([{path:"rotated.kicad_pcb",bytes:new TextEncoder().encode(`(kicad_pcb (version 20250114) (generator pcbnew) (layers (0 "F.Cu" signal) (31 "B.Cu" signal)) (footprint "Test" (layer "F.Cu") (at 10 20 90) (property "Reference" "J1") (pad "1" thru_hole oval (at 2 0 90) (size 3 2) (drill oval 1.5 1) (layers "*.Cu" "*.Mask"))))`)}]);
+  const p=b.pcbs[0].pads[0];assert.equal(p.position?.x,"10");assert.equal(p.position?.y,"18");assert.equal(p.rotation,"90");assert.deepEqual(p.drill,{x:"1.5",y:"1"});
+});

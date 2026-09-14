@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { sha256 } from "./eda/util";
 import type { CanonicalIrBundle } from "./eda/types";
 
 let schemaPromise: Promise<void> | undefined;
@@ -61,7 +62,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       await sql`CREATE INDEX IF NOT EXISTS eda_projects_tenant_updated_idx ON eda_projects (tenant_id, updated_at DESC)`;
       await sql`CREATE INDEX IF NOT EXISTS eda_parse_jobs_project_idx ON eda_parse_jobs (project_id, created_at DESC)`;
       await sql`CREATE INDEX IF NOT EXISTS eda_ir_bundles_project_idx ON eda_ir_bundles (project_id, created_at DESC)`;
-    })();
+    })().catch(error => { schemaPromise = undefined; throw error; });
   }
   return schemaPromise;
 }
@@ -93,13 +94,16 @@ export async function saveBundle(tenantId: string, bundle: CanonicalIrBundle) {
   const parser = bundle.parser;
   const summary = bundle.summary;
   const inventory = bundle.inventory;
-  const projectId = project.id;
-  const bundleId = String(bundle.bundleId);
+  const namespace = await sha256(new TextEncoder().encode(tenantId));
+  const contentHash = await sha256(new TextEncoder().encode(JSON.stringify({...bundle,generatedAt:undefined})));
+  const projectId = `${namespace}:${project.id}`;
+  const bundleId = `${namespace}:${contentHash}`;
   const jobId = `job_${bundleId.replace(/^bundle_/, "")}`;
   const bundleHash = String(bundleId);
   const snapshotHash = inventory.map((asset) => String(asset.sha256)).sort().join(":");
 
-  await sql`
+  await sql.transaction([
+  sql`
     INSERT INTO eda_projects (id, tenant_id, name, source_format, latest_bundle_id, updated_at)
     VALUES (${projectId}, ${tenantId}, ${String(project.name)}, ${String(project.sourceFormat)}, ${bundleId}, NOW())
     ON CONFLICT (id) DO UPDATE SET
@@ -107,8 +111,8 @@ export async function saveBundle(tenantId: string, bundle: CanonicalIrBundle) {
       source_format = EXCLUDED.source_format,
       latest_bundle_id = EXCLUDED.latest_bundle_id,
       updated_at = NOW()
-  `;
-  await sql`
+  `,
+  sql`
     INSERT INTO eda_parse_jobs (
       id, project_id, tenant_id, status, adapter_id, input_snapshot_hash,
       result_summary, diagnostics, completed_at
@@ -121,8 +125,8 @@ export async function saveBundle(tenantId: string, bundle: CanonicalIrBundle) {
       result_summary = EXCLUDED.result_summary,
       diagnostics = EXCLUDED.diagnostics,
       completed_at = NOW()
-  `;
-  await sql`
+  `,
+  sql`
     INSERT INTO eda_ir_bundles (
       id, project_id, parse_job_id, tenant_id, project_ir_version,
       source_format, bundle_hash, bundle, fidelity
@@ -134,7 +138,8 @@ export async function saveBundle(tenantId: string, bundle: CanonicalIrBundle) {
     ON CONFLICT (tenant_id, bundle_hash) DO UPDATE SET
       bundle = EXCLUDED.bundle,
       fidelity = EXCLUDED.fidelity
-  `;
+  `,
+  ]);
   return { projectId, bundleId, jobId };
 }
 
@@ -150,3 +155,4 @@ export async function getProjectBundle(tenantId: string, projectId: string) {
   `;
   return rows[0] ?? null;
 }
+

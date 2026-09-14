@@ -28,6 +28,10 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { validateMiningInput } from "../lib/knowledge/validate";
+import { miningDemoFiles } from "../lib/knowledge/fixtures";
+import { KnowledgeWorkbench } from "./KnowledgeWorkbench";
+import { apiFetch, setApiToken } from "../lib/client-api";
 import { strToU8, zipSync } from "fflate";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createDemoFiles, filesToInputAssets } from "../lib/eda/archive";
@@ -36,7 +40,7 @@ import { parseEdaProject } from "../lib/eda/parse";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
 import { Board3DViewer, BomViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
 
-type ResultTab = "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
+type ResultTab = "knowledge" | "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
 type AppView = "workspace" | "history" | "adapters";
 type SavedProject = {
   id: string;
@@ -147,7 +151,7 @@ Every domain file contains metadata plus a \`data\` field. Net IR keeps both \`d
 JavaScript:
 
 \`\`\`js
-const netIr = await fetch("./net-ir.json").then((response) => response.json());
+const netIr = await apiFetch("./net-ir.json").then((response) => response.json());
 for (const net of netIr.data.nets) {
   console.log(net.canonicalName, net.endpoints);
 }
@@ -255,7 +259,7 @@ export default function EdaWorkbench() {
 
   const refreshProjects = async () => {
     try {
-      const response = await fetch("/api/projects", { cache: "no-store" });
+      const response = await apiFetch("/api/projects", { cache: "no-store" });
       const data = await response.json();
       setDbConfigured(Boolean(data.configured));
       setSavedProjects(data.projects ?? []);
@@ -266,7 +270,7 @@ export default function EdaWorkbench() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/projects", { cache: "no-store" })
+    apiFetch("/api/projects", { cache: "no-store" })
       .then((response) => response.json())
       .then((data: { configured?: boolean; projects?: SavedProject[] }) => {
         if (cancelled) return;
@@ -302,7 +306,12 @@ export default function EdaWorkbench() {
       await new Promise((resolve) => setTimeout(resolve, 90));
       if (runId !== parseRunIdRef.current) return;
       setParseStage(4);
-      const result = await parseEdaProject(intake.assets, intake.diagnostics);
+      let imported: CanonicalIrBundle | undefined;
+      if (intake.assets.length === 1 && /\.json$/i.test(intake.assets[0].path)) {
+        const value = JSON.parse(new TextDecoder().decode(intake.assets[0].bytes));
+        if (value?.parser?.agent === "eda-canonical-ir-agent") imported = validateMiningInput(value);
+      }
+      const result = imported ?? await parseEdaProject(intake.assets, intake.diagnostics);
       if (runId !== parseRunIdRef.current) return;
       setParseStage(7);
       await new Promise((resolve) => setTimeout(resolve, 110));
@@ -340,7 +349,7 @@ export default function EdaWorkbench() {
     if (!bundle) return;
     setSaveState("saving");
     try {
-      const response = await fetch("/api/projects", {
+      const response = await apiFetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(bundle),
@@ -357,7 +366,7 @@ export default function EdaWorkbench() {
 
   const openSavedProject = async (id: string) => {
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("读取失败");
       const data = await response.json();
       setBundle(data.bundle as CanonicalIrBundle);
@@ -448,6 +457,7 @@ export default function EdaWorkbench() {
   const resultTabs: Array<{ id: ResultTab; label: string; count?: number }> = bundle
     ? [
         { id: "overview", label: "概览" },
+        { id: "knowledge", label: "知识挖掘 / 审核" },
         { id: "inventory", label: "源文件", count: bundle.inventory.length },
         { id: "project", label: "Project IR", count: 1 },
         { id: "schematic", label: "原理图查看器", count: bundle.schematics.length },
@@ -491,6 +501,7 @@ export default function EdaWorkbench() {
         <div className="nav-caption viewer-caption">ONLINE VIEWERS</div>
         <div className="viewer-nav-list">
           {[
+            { tab: "knowledge" as ResultTab, label: "知识挖掘 / 审核", icon: <Sparkles size={16} />, count: undefined },
             { tab: "schematic" as ResultTab, label: "原理图", icon: <Zap size={16} />, count: bundle?.schematics.length },
             { tab: "pcb" as ResultTab, label: "PCB 2D", icon: <CircuitBoard size={16} />, count: bundle?.pcbs.length },
             { tab: "3d" as ResultTab, label: "PCB 3D", icon: <Box size={16} />, count: bundle?.pcbs.length },
@@ -510,7 +521,7 @@ export default function EdaWorkbench() {
 
       <main className="main-stage">
         <header className="topbar">
-          <div className="breadcrumb"><span>ezPLM</span><ChevronRight size={14} /><strong>{view === "workspace" ? bundle?.project.name ?? "新建解析" : view === "history" ? "工程记录" : "适配器能力"}</strong></div>
+          <div className="breadcrumb"><input aria-label="工作区访问密钥" type="password" placeholder="工作区密钥（仅内存保存）" onChange={event => setApiToken(event.target.value)} onBlur={() => void refreshProjects()} style={{maxWidth:240, padding:8, border:"1px solid #ced8d3",borderRadius:6}} /><span>ezPLM</span><ChevronRight size={14} /><strong>{view === "workspace" ? bundle?.project.name ?? "新建解析" : view === "history" ? "工程记录" : "适配器能力"}</strong></div>
           <div className="top-actions">
             {bundle && view === "workspace" && (
               <>
@@ -525,7 +536,8 @@ export default function EdaWorkbench() {
           </div>
         </header>
 
-        <input ref={fileInputRef} type="file" multiple hidden accept=".zip,.pro,.sch,.brd,.lib,.kicad_pro,.kicad_sch,.kicad_pcb,.kicad_sym,.kicad_mod,.PrjPcb,.DsnWrk,.SchDoc,.PcbDoc,.SchLib,.PcbLib,.IntLib,.OutJob,.json,.jsonl,.epro,.eprj,.epru,.esch,.epcb,.esym,.efoo" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
+        <button className="icon-text-button" style={{margin:"8px 24px"}} onClick={() => void runParse(miningDemoFiles())}>打开知识挖掘合成示例 · AD9837</button>
+        <input ref={fileInputRef} type="file" multiple hidden accept=".pdf,.zip,.pro,.sch,.brd,.lib,.kicad_pro,.kicad_sch,.kicad_pcb,.kicad_sym,.kicad_mod,.PrjPcb,.DsnWrk,.SchDoc,.PcbDoc,.SchLib,.PcbLib,.IntLib,.OutJob,.json,.jsonl,.epro,.eprj,.epru,.esch,.epcb,.esym,.efoo" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
         <input ref={directoryInputRef} type="file" multiple hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
 
         <div className="content-area">
@@ -587,6 +599,7 @@ export default function EdaWorkbench() {
                   </div>
                 )}
 
+                {activeTab === "knowledge" && <KnowledgeWorkbench key={bundle.bundleId} bundle={bundle} />}
                 {activeTab === "overview" && (
                   <>
                     <div className="metrics-grid">
@@ -822,3 +835,4 @@ export default function EdaWorkbench() {
     </div>
   );
 }
+

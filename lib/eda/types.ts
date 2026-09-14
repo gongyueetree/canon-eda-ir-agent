@@ -133,6 +133,7 @@ export type SchematicIr = {
     reference: string;
     number: string;
     name: string;
+    electricalType?: string;
     position: IrPoint;
     sourceRef: SourceRef;
   }>;
@@ -255,13 +256,14 @@ export type FidelityDimension = {
 };
 
 export type CanonicalIrBundle = {
+  pdfEvidence?: import("../knowledge/types").PdfEvidenceDocument[];
   bundleId: string;
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.0.0-mvp";
+    agentVersion: "1.1.0";
     adapterId: string;
-    adapterVersion: "1.0.0-mvp";
+    adapterVersion: "1.1.0";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";
@@ -332,3 +334,4 @@ export type InputAsset = {
   path: string;
   bytes: Uint8Array;
 };
+

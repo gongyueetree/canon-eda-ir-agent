@@ -150,3 +150,27 @@ npm run build:vercel
 5. 独立 Worker 沙箱、资源配额、公开/合成 Golden Fixtures、Fuzz 与大工程 Benchmark。
 
 V1 始终保持 `read_only`。在通过严格 Round-trip Test 之前，不应声称可以无损写回任何源格式。
+
+
+---
+
+## 新增：硬件知识挖掘融合版
+
+本仓库现在在原有 Canonical IR 上增加**知识挖掘 / 审核**工作台：核心 IC、管脚功能分组、候选功能块、成员/端口边界、源证据、批准与发布。可以继续查看原有原理图、PCB、BOM 和 Netlist。
+
+上传 `.pdf` 时会实际提取文字、页码、坐标和位号候选；**尚不恢复 PDF 电路连接**。原有 `.json` 输入也可导入 Canonical Bundle，包括批处理输出。
+
+**部署变化：必须新增服务端 EDA_API_TOKEN（至少 24 字符）和 EDA_WORKSPACE_ID。旧文档中匿名 local-demo 与用户指定租户头的做法已废止。** 未配置密钥的网页仍可本地解析与导出，但不能访问数据库。打开页面后在顶部输入工作区密钥，再保存/审核。
+
+- [融合分析与能力边界](docs/MERGE_REPORT.md)
+- [Vercel 配置与 3000 工程批处理](docs/DEPLOYMENT.md)
+- [数据模型](docs/DATA_MODEL.md)
+- [挖掘算法](docs/MINING_ALGORITHM.md)
+- [API](docs/API.md)
+- [验证与真实工程验收](docs/TESTING.md)
+
+```bash
+npm run mine:batch -- fixtures/mining/manifest.json outputs/mining
+```
+
+三个例子为合成解析测试，不是真实厂商参考设计。没有接入用户 3000 个工程，也不声称完成 Golden-100 验收。

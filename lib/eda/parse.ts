@@ -221,7 +221,18 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
       settings: {}, schematics: [], pcbs: [], parts: [], nets: [], constraints: [], libraries: [], sourceMap: [], diagnostics: [diagnostic("FORMAT_UNSUPPORTED", "没有可用于该工程包的解析适配器。", "error", "unsupported")], opaqueNodes: [], recognized: 0, normalized: 0, opaque: 0,
     };
   }
-  const diagnostics = [...intakeDiagnostics, ...detection.diagnostics, ...parsed.diagnostics];
+  const pdfInputs = inputs.filter(input => /\.pdf$/i.test(input.path));
+  const pdfOnly = pdfInputs.length > 0 && detection.sourceFormat === "unknown";
+  const diagnostics = [...intakeDiagnostics, ...detection.diagnostics, ...parsed.diagnostics].filter(d => !pdfOnly || !["FORMAT_NOT_DETECTED", "FORMAT_UNSUPPORTED"].includes(d.code));
+  const pdfEvidence: NonNullable<CanonicalIrBundle["pdfEvidence"]> = [];
+  if (pdfInputs.length) {
+    const { extractPdfEvidence } = await import("../knowledge/pdf");
+    for (const input of pdfInputs) {
+      const asset = detection.assets.find(a => a.relativePath === input.path)!;
+      pdfEvidence.push(await extractPdfEvidence(input, asset));
+    }
+    diagnostics.push(diagnostic("PDF_CONNECTIVITY_NOT_RECONSTRUCTED", "PDF 仅提取文本与页面坐标证据；未恢复符号、管脚和连线。扫描页需要 OCR。", "warning", "unsupported"));
+  }
   const jlcPro = detection.sourceFormat === "easyeda" && isJlcProProject(inputs, detection.assets);
   const projectName = parsed.projectName ?? withoutExtension(detection.assets.find((asset) => asset.entryRole === "project")?.fileName ?? basename(inputs[0]?.path ?? "Untitled project"));
   const crossDocumentLinks = linkDocuments(parsed.parts, parsed.nets, parsed.pcbs);
@@ -270,12 +281,13 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
   const fidelity = calculateFidelity(detection.sourceFormat, parsed, diagnostics);
   return {
     bundleId,
+    pdfEvidence,
     generatedAt: new Date().toISOString(),
     parser: {
       agent: "eda-canonical-ir-agent",
-      agentVersion: "1.0.0-mvp",
+      agentVersion: "1.1.0",
       adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? "altium-safe-intake" : "unknown",
-      adapterVersion: "1.0.0-mvp",
+      adapterVersion: "1.1.0",
       deterministic: true,
       llmUsedForParsing: false,
       roundTripReadiness: "read_only",
@@ -305,3 +317,4 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     },
   };
 }
+

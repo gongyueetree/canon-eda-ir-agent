@@ -1,21 +1,19 @@
+import { authorize, authError } from "../../../lib/auth";
 import { NextResponse } from "next/server";
 import { isDatabaseConfigured, listProjects, saveBundle } from "../../../lib/database";
 import type { CanonicalIrBundle } from "../../../lib/eda/types";
 
 export const dynamic = "force-dynamic";
 
-function tenantId(request: Request): string {
-  return request.headers.get("oai-authenticated-user-email") || request.headers.get("x-eda-tenant") || "local-demo";
-}
-
 export async function GET(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json({ configured: false, projects: [] });
   }
   try {
-    const projects = await listProjects(tenantId(request));
+    const projects = await listProjects(authorize(request));
     return NextResponse.json({ configured: true, projects });
   } catch (error) {
+    if (error instanceof Error && ["UNAUTHORIZED", "AUTH_NOT_CONFIGURED"].includes(error.message)) return authError(error);
     return NextResponse.json(
       { configured: true, error: error instanceof Error ? error.message : "Database query failed", projects: [] },
       { status: 500 },
@@ -31,6 +29,7 @@ export async function POST(request: Request) {
     );
   }
   try {
+    const tenant = authorize(request);
     const bundle = (await request.json()) as CanonicalIrBundle;
     const serialized = JSON.stringify(bundle);
     if (serialized.length > 8 * 1024 * 1024) {
@@ -39,12 +38,14 @@ export async function POST(request: Request) {
     if (!bundle?.bundleId || !bundle?.project?.id || !bundle?.parser?.adapterId) {
       return NextResponse.json({ error: "IR_SCHEMA_VALIDATION_FAILED", message: "缺少 Bundle 必填字段。" }, { status: 400 });
     }
-    const result = await saveBundle(tenantId(request), bundle);
+    const result = await saveBundle(tenant, bundle);
     return NextResponse.json({ saved: true, ...result }, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && ["UNAUTHORIZED", "AUTH_NOT_CONFIGURED"].includes(error.message)) return authError(error);
     return NextResponse.json(
       { error: "OUTPUT_STORAGE_FAILED", message: error instanceof Error ? error.message : "Database write failed" },
       { status: 500 },
     );
   }
 }
+

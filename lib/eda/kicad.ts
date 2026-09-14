@@ -40,8 +40,8 @@ export type KicadParseOutput = {
   opaque: number;
 };
 
-type SymbolPinDefinition = { number: string; name: string; x: string; y: string };
-type SymbolDefinition = { libraryId: string; pins: SymbolPinDefinition[] };
+type SymbolPinDefinition = { number: string; name: string; x: string; y: string; electricalType?: string };
+type SymbolDefinition = { libraryId: string; pins: SymbolPinDefinition[]; multiUnit?: boolean };
 type PinAnchor = {
   id: string;
   partId: string;
@@ -49,6 +49,7 @@ type PinAnchor = {
   reference: string;
   pin: string;
   name: string;
+  electricalType?: string;
   x: string;
   y: string;
   sourceRef: SourceRef;
@@ -88,6 +89,12 @@ function transformPoint(
   const y = Number(originY) + Number(localX) * Math.sin(radians) + Number(localY) * Math.cos(radians);
   const clean = (value: number) => (Math.abs(value) < 1e-9 ? "0" : Number(value.toFixed(6)).toString());
   return [clean(x), clean(y)];
+}
+
+// Symbol libraries use Cartesian +Y up; schematic sheets use +Y down.
+function schematicPinPoint(x: string, y: string, ox: string, oy: string, rotation: string): [string,string] {
+  const [rx, ry] = transformPoint(x, y, "0", "0", rotation);
+  return [String(Number(ox)+Number(rx)), String(Number(oy)-Number(ry))];
 }
 
 function pointKey(x: string, y: string): string {
@@ -135,13 +142,14 @@ function parseSymbolDefinitions(root: SList): Map<string, SymbolDefinition> {
     const pins = allDescendants(definition, "pin").map((pinNode) => {
       const at = nodeAt(pinNode) ?? ["0", "0", "0"];
       return {
+        electricalType: atom(pinNode.items[1]),
         number: childValue(pinNode, "number") ?? "?",
         name: childValue(pinNode, "name") ?? "",
         x: at[0],
         y: at[1],
       };
     });
-    result.set(libraryId, { libraryId, pins });
+    result.set(libraryId, { libraryId, pins, multiUnit: allDescendants(definition, "symbol").some(node => { const match = atom(node.items[1])?.match(/_(\d+)_(\d+)$/); return match ? Number(match[1]) > 1 || Number(match[2]) > 1 : false; }) });
   }
   return result;
 }
@@ -316,6 +324,7 @@ function parseSchematic(
   const schematicId = stableId("schematic", documentId);
   const fileRef = sourceRef(asset.id, asset.relativePath);
   const symbolDefinitions = parseSymbolDefinitions(root);
+  if (directChildren(root, "sheet").length || directChildren(root, "bus").length) diagnostics.push(diagnostic("SCHEMATIC_HIERARCHY_BUS_UNRESOLVED", "层级 Sheet / Bus 尚未完整解析，连接不可用于自动发布。", "warning", "connectivity", fileRef));
   const partsByReference = new Map<string, PartIr>();
   const pinAnchors: PinAnchor[] = [];
   const powerLabels: SchematicIr["labels"] = [];
@@ -331,12 +340,14 @@ function parseSchematic(
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: symbolNode.span.line, column: symbolNode.span.column });
     sourceMap.push(ref);
     const definition = symbolDefinitions.get(libraryId);
+    if (definition?.multiUnit) diagnostics.push(diagnostic("SCHEMATIC_MULTIUNIT_UNRESOLVED", `${reference} 的多单元/替代图形管脚尚未完整区分，不能批准连接。`, "warning", "connectivity", ref));
+    if (firstChild(symbolNode, "mirror")) diagnostics.push(diagnostic("SCHEMATIC_MIRROR_UNRESOLVED", `${reference} 存在尚未支持的镜像变换，连接不可用于自动发布。`, "warning", "connectivity", ref));
     const isPowerSymbol = reference.startsWith("#PWR") || libraryId.startsWith("power:");
     if (isPowerSymbol) {
       if (at) {
         const powerPin = definition?.pins[0];
         const [x, y] = powerPin
-          ? transformPoint(powerPin.x, powerPin.y, at[0], at[1], at[2])
+          ? schematicPinPoint(powerPin.x, powerPin.y, at[0], at[1], at[2])
           : [at[0], at[1]];
         const name = fields.Value || libraryId.replace(/^power:/, "") || reference;
         powerLabels.push({
@@ -389,7 +400,7 @@ function parseSchematic(
     }
     if (!at) continue;
     for (const pinDefinition of definition.pins) {
-      const [x, y] = transformPoint(pinDefinition.x, pinDefinition.y, at[0], at[1], at[2]);
+      const [x, y] = schematicPinPoint(pinDefinition.x, pinDefinition.y, at[0], at[1], at[2]);
       pinAnchors.push({
         id: stableId("pin", unitId, pinDefinition.number),
         partId,
@@ -397,6 +408,7 @@ function parseSchematic(
         reference,
         pin: pinDefinition.number,
         name: pinDefinition.name,
+        electricalType: pinDefinition.electricalType,
         x,
         y,
         sourceRef: ref,
@@ -459,6 +471,7 @@ function parseSchematic(
       reference: pinAnchor.reference,
       number: pinAnchor.pin,
       name: pinAnchor.name,
+      electricalType: pinAnchor.electricalType,
       position: point(pinAnchor.x, pinAnchor.y)!,
       sourceRef: pinAnchor.sourceRef,
     })),
@@ -701,6 +714,7 @@ function parseLegacySchematic(
           reference,
           pin: pinDefinition.number,
           name: pinDefinition.name,
+        electricalType: pinDefinition.electricalType,
           x,
           y,
           sourceRef: ref,
@@ -790,6 +804,7 @@ function parseLegacySchematic(
       reference: pinAnchor.reference,
       number: pinAnchor.pin,
       name: pinAnchor.name,
+      electricalType: pinAnchor.electricalType,
       position: point(pinAnchor.x, pinAnchor.y)!,
       sourceRef: pinAnchor.sourceRef,
     })),
@@ -1555,3 +1570,4 @@ export function parseKicad(inputs: InputAsset[], inventory: SourceAsset[]): Kica
   }
   return output;
 }
+

@@ -346,6 +346,26 @@ function parseSchematic(
     if (definition?.multiUnit) diagnostics.push(diagnostic("SCHEMATIC_MULTIUNIT_UNRESOLVED", `${reference} 的多单元/替代图形管脚尚未完整区分，不能批准连接。`, "warning", "connectivity", ref));
     if (firstChild(symbolNode, "mirror")) diagnostics.push(diagnostic("SCHEMATIC_MIRROR_UNRESOLVED", `${reference} 存在尚未支持的镜像变换，连接不可用于自动发布。`, "warning", "connectivity", ref));
     const isPowerSymbol = reference.startsWith("#PWR") || libraryId.startsWith("power:");
+    if (at) {
+    const embedded = directChildren(firstChild(root, "lib_symbols") ?? root, "symbol").find(n => atom(n.items[1]) === libraryId);
+    const mirror = childValue(symbolNode, "mirror");
+    const drawPoint = (x: string, y: string) => point(...schematicPinPoint(mirror === "y" ? String(-Number(x)) : x, mirror === "x" ? String(-Number(y)) : y, at[0], at[1], at[2]))!;
+    for (const sub of embedded ? directChildren(embedded, "symbol") : []) {
+      const suffix = (atom(sub.items[1]) ?? "").match(/_(\d+)_(\d+)$/);
+      if (suffix && (Number(suffix[1]) !== 0 && Number(suffix[1]) !== unit || Number(suffix[2]) > 1)) continue;
+      for (const node of sub.items.filter((n): n is SList => n.kind === "list")) {
+        const kind = head(node);
+        let coords: Array<[string, string]> = [];
+        const xy = (key: string): [string, string] => { const n = firstChild(node, key); return [atom(n?.items[1]) ?? "0", atom(n?.items[2]) ?? "0"]; };
+        if (kind === "rectangle") { const a = xy("start"), b = xy("end"); coords = [a, [b[0], a[1]], b, [a[0], b[1]], a]; }
+        if (kind === "polyline") coords = directChildren(firstChild(node, "pts") ?? node, "xy").map(n => [atom(n.items[1]) ?? "0", atom(n.items[2]) ?? "0"]);
+        if (kind === "circle") { const c = xy("center"), r = Number(childValue(node, "radius")); coords = Array.from({length:49}, (_, i) => [String(Number(c[0])+r*Math.cos(i*Math.PI/24)), String(Number(c[1])+r*Math.sin(i*Math.PI/24))]); }
+        if (kind === "arc") { const a=xy("start"), m=xy("mid"), b=xy("end"); coords=arcPoints({x:Number(a[0]),y:Number(a[1])},{x:Number(m[0]),y:Number(m[1])},{x:Number(b[0]),y:Number(b[1])}).map(p=>[String(p.x),String(p.y)]); }
+        if (kind === "pin") { const a = nodeAt(node); if (a) { const r = Number(a[2])*Math.PI/180, len = Number(childValue(node, "length") ?? 0); coords = [[a[0],a[1]], [String(Number(a[0])+len*Math.cos(r)),String(Number(a[1])+len*Math.sin(r))]]; } }
+        if (coords.length) graphics.push({id: stableId("graphic", stableId("symbol-unit", partsByReference.get(reference)?.id ?? stableId("part", schematicId, reference), unit, nativeId), graphics.length), symbolUnitId:stableId("symbol-unit", partsByReference.get(reference)?.id ?? stableId("part", schematicId, reference), unit, nativeId), points: coords.map(([x,y]) => drawPoint(x,y)), closed: kind === "rectangle" || kind === "circle"});
+      }
+    }
+    }
     if (isPowerSymbol) {
       if (at) {
         const powerPin = definition?.pins[0];
@@ -417,24 +437,6 @@ function parseSchematic(
       continue;
     }
     if (!at) continue;
-    const embedded = directChildren(firstChild(root, "lib_symbols") ?? root, "symbol").find(n => atom(n.items[1]) === libraryId);
-    const mirror = childValue(symbolNode, "mirror");
-    const drawPoint = (x: string, y: string) => point(...schematicPinPoint(mirror === "y" ? String(-Number(x)) : x, mirror === "x" ? String(-Number(y)) : y, at[0], at[1], at[2]))!;
-    for (const sub of embedded ? directChildren(embedded, "symbol") : []) {
-      const suffix = (atom(sub.items[1]) ?? "").match(/_(\d+)_(\d+)$/);
-      if (suffix && (Number(suffix[1]) !== 0 && Number(suffix[1]) !== unit || Number(suffix[2]) > 1)) continue;
-      for (const node of sub.items.filter((n): n is SList => n.kind === "list")) {
-        const kind = head(node);
-        let coords: Array<[string, string]> = [];
-        const xy = (key: string): [string, string] => { const n = firstChild(node, key); return [atom(n?.items[1]) ?? "0", atom(n?.items[2]) ?? "0"]; };
-        if (kind === "rectangle") { const a = xy("start"), b = xy("end"); coords = [a, [b[0], a[1]], b, [a[0], b[1]], a]; }
-        if (kind === "polyline") coords = directChildren(firstChild(node, "pts") ?? node, "xy").map(n => [atom(n.items[1]) ?? "0", atom(n.items[2]) ?? "0"]);
-        if (kind === "circle") { const c = xy("center"), r = Number(childValue(node, "radius")); coords = Array.from({length:49}, (_, i) => [String(Number(c[0])+r*Math.cos(i*Math.PI/24)), String(Number(c[1])+r*Math.sin(i*Math.PI/24))]); }
-        if (kind === "arc") { const a=xy("start"), m=xy("mid"), b=xy("end"); coords=arcPoints({x:Number(a[0]),y:Number(a[1])},{x:Number(m[0]),y:Number(m[1])},{x:Number(b[0]),y:Number(b[1])}).map(p=>[String(p.x),String(p.y)]); }
-        if (kind === "pin") { const a = nodeAt(node); if (a) { const r = Number(a[2])*Math.PI/180, len = Number(childValue(node, "length") ?? 0); coords = [[a[0],a[1]], [String(Number(a[0])+len*Math.cos(r)),String(Number(a[1])+len*Math.sin(r))]]; } }
-        if (coords.length) graphics.push({id: stableId("graphic", unitId, graphics.length), symbolUnitId:unitId, points: coords.map(([x,y]) => drawPoint(x,y)), closed: kind === "rectangle" || kind === "circle"});
-      }
-    }
     for (const pinDefinition of definition.pins) {
       const [x, y] = schematicPinPoint(pinDefinition.x, pinDefinition.y, at[0], at[1], at[2]);
       pinAnchors.push({
@@ -499,6 +501,15 @@ function parseSchematic(
     name: withoutExtension(asset.fileName),
     rootSheetId: stableId("sheet", schematicId, "/"),
     sheets: [{ id: stableId("sheet", schematicId, "/"), name: withoutExtension(asset.fileName), instancePath: "/" }],
+    page: (() => {
+      const paper = firstChild(root, "paper");
+      const name = atom(paper?.items[1]) ?? "A4";
+      const sizes: Record<string, [number, number]> = {A0:[1189,841],A1:[841,594],A2:[594,420],A3:[420,297],A4:[297,210],A5:[210,148],A:[279.4,215.9],B:[431.8,279.4],C:[558.8,431.8],D:[863.6,558.8],E:[1117.6,863.6],USLetter:[279.4,215.9],USLegal:[355.6,215.9],USLedger:[431.8,279.4]};
+      let [width,height] = name === "User" ? [Number(atom(paper?.items[2])),Number(atom(paper?.items[3]))] : sizes[name] ?? sizes.A4;
+      if (paper?.items.some(n => atom(n) === "portrait")) [width,height] = [height,width];
+      const title = firstChild(root,"title_block");
+      return {width: Number.isFinite(width)&&width>0?width:297, height:Number.isFinite(height)&&height>0?height:210, title:title?childValue(title,"title"):undefined};
+    })(),
     graphics,
     texts,
     sheetBoxes: directChildren(root, "sheet").flatMap((node, index) => {

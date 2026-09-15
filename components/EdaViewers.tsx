@@ -12,7 +12,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import type { CanonicalIrBundle, IrPoint, PartIr, PcbIr } from "../lib/eda/types";
 
 import { arcPoints } from "../lib/eda/view-geometry";
@@ -94,9 +94,9 @@ function ViewerToolbar({
       <div><Eye size={15} /><strong>{label}</strong></div>
       <div className="viewer-tools">
         {children}
-        <button type="button" aria-label="缩小" onClick={() => onZoom(Math.max(0.55, zoom - 0.15))}><ZoomOut size={14} /></button>
+        <button type="button" aria-label="缩小" onClick={() => onZoom(Math.max(0.2, zoom / 1.2))}><ZoomOut size={14} /></button>
         <span>{zoomLabel(zoom)}</span>
-        <button type="button" aria-label="放大" onClick={() => onZoom(Math.min(2.2, zoom + 0.15))}><ZoomIn size={14} /></button>
+        <button type="button" aria-label="放大" onClick={() => onZoom(Math.min(20, zoom * 1.2))}><ZoomIn size={14} /></button>
         <button type="button" onClick={() => onZoom(1)}><RotateCcw size={13} /> 适合窗口</button>
       </div>
     </div>
@@ -107,6 +107,27 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
   const [documentIndex, setDocumentIndex] = useState(0);
   const [showPinNumbers,setShowPinNumbers] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [pan,setPan] = useState({x:0,y:0});
+  const svgRef = useRef<SVGSVGElement>(null);
+  const drag = useRef<{id:number;x:number;y:number} | null>(null);
+  const resetView = () => {setZoom(1);setPan({x:0,y:0});};
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const scale = Math.min(rect.width/VIEW_WIDTH,rect.height/VIEW_HEIGHT);
+      if (!scale) return;
+      const x = (event.clientX-rect.left-rect.width/2)/scale;
+      const y = (event.clientY-rect.top-rect.height/2)/scale;
+      const next = Math.max(.2,Math.min(20,zoom*Math.exp(-event.deltaY*(event.deltaMode===1?.04:.0015))));
+      const ratio = next/zoom;
+      setPan(p=>({x:x-(x-p.x)*ratio,y:y-(y-p.y)*ratio}));setZoom(next);
+    };
+    svg.addEventListener("wheel",wheel,{passive:false});
+    return () => svg.removeEventListener("wheel",wheel);
+  },[zoom,bundle,documentIndex]);
   const [selectedNetId, setSelectedNetId] = useState<string | null>(null);
   const schematic = bundle.schematics[Math.min(documentIndex, Math.max(bundle.schematics.length - 1, 0))];
   const partsById = useMemo(() => new Map(bundle.parts.map((part) => [part.id, part])), [bundle.parts]);
@@ -122,7 +143,7 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
       ...schematic.labels.map((label) => numericPoint(label.position)),
       ...schematic.junctions.map((junction) => numericPoint(junction.position)),
     ];
-    const bounds = boundsOf(points);
+    const bounds = schematic.page ? {minX:0,minY:0,maxX:schematic.page.width,maxY:schematic.page.height} : boundsOf(points);
     if (!bounds) return undefined;
     const project = projector(bounds, zoom);
     const wireNet = new Map<string, string>();
@@ -137,32 +158,33 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
 
   return (
     <article className="panel eda-viewer-panel">
-      <ViewerToolbar label={`Schematic · ${schematic.name}`} zoom={zoom} onZoom={setZoom}>
+      <ViewerToolbar label={`Schematic · ${schematic.name}`} zoom={zoom} onZoom={next=>{if(next===1) resetView(); else {setPan(p=>({x:p.x*next/zoom,y:p.y*next/zoom}));setZoom(next);}}}>
         <button type="button" aria-pressed={showPinNumbers} onClick={()=>setShowPinNumbers(v=>!v)}>管脚编号 {showPinNumbers?"开":"关"}</button>
         {bundle.schematics.length > 1 && (
-          <select aria-label="选择原理图文档" value={documentIndex} onChange={(event) => { setDocumentIndex(Number(event.target.value)); setSelectedNetId(null); }}>
+          <select aria-label="选择原理图文档" value={documentIndex} onChange={(event) => { setDocumentIndex(Number(event.target.value)); resetView(); setSelectedNetId(null); }}>
             {bundle.schematics.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}
           </select>
         )}
       </ViewerToolbar>
       <div className="viewer-body">
         <div className="viewer-canvas schematic-canvas">
-          <svg role="img" aria-label={`${schematic.name} 原理图在线预览`} viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
+          <svg ref={svgRef} tabIndex={0} onPointerDown={event=>{if(event.button!==0 && event.button!==1)return;event.preventDefault();event.currentTarget.setPointerCapture?.(event.pointerId);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY};}} onPointerMove={event=>{const d=drag.current;if(!d || d.id!==event.pointerId)return;const r=event.currentTarget.getBoundingClientRect();const scale=Math.min(r.width/VIEW_WIDTH,r.height/VIEW_HEIGHT);if(scale) setPan(p=>({x:p.x+(event.clientX-d.x)/scale,y:p.y+(event.clientY-d.y)/scale}));drag.current={id:d.id,x:event.clientX,y:event.clientY};}} onPointerUp={()=>{drag.current=null;}} onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}} onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(delta[event.key]){event.preventDefault();const [x,y]=delta[event.key];setPan(p=>({x:p.x+x,y:p.y+y}));}if(event.key==="0")resetView();}} role="img" aria-label={`${schematic.name}（拖动平移，滚轮缩放） 原理图在线预览`} viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
             <defs>
               <pattern id={`schematic-grid-${documentIndex}`} width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" stroke="#dce6df" strokeWidth="1" /></pattern>
             </defs>
             <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill={`url(#schematic-grid-${documentIndex})`} />
+            <g transform={`translate(${pan.x} ${pan.y})`}>
+            {schematic.page && (()=>{const a=geometry.project({x:10,y:10}),b=geometry.project({x:schematic.page.width-10,y:schematic.page.height-10});return <g className="schematic-page-frame" fill="none" stroke="#88734a" strokeWidth="1"><rect x={a.x} y={a.y} width={b.x-a.x} height={b.y-a.y}/><text x={b.x-8} y={b.y-8} textAnchor="end" fill="#69786e" stroke="none" fontSize="11">{schematic.page.title || schematic.name}</text></g>;})()}
             {(schematic.sheetBoxes ?? []).map(sheet => {
               const a = geometry.project(numericPoint(sheet.position)!);
               const b = geometry.project({x:Number(sheet.position.x)+Number(sheet.size.x), y:Number(sheet.position.y)+Number(sheet.size.y)});
               const sourcePath = schematic.sourceRefs[0]?.path ?? "";
               const targetPath = sourcePath.slice(0,sourcePath.lastIndexOf("/")+1)+sheet.file;
               const target = bundle.schematics.findIndex(item => item.sourceRefs.some(ref => ref.path === targetPath));
-              return <g key={sheet.id} className="schematic-sheet">
+              return <g key={sheet.id} className="schematic-sheet" role={target>=0?"button":undefined} tabIndex={target>=0?0:undefined} aria-label={target>=0?`进入 ${sheet.name}`:undefined} onDoubleClick={()=>{if(target>=0){setDocumentIndex(target);resetView();setSelectedNetId(null);}}} onKeyDown={event=>{if(target>=0 && event.key==="Enter"){setDocumentIndex(target);resetView();setSelectedNetId(null);}}}>
                 <rect x={a.x} y={a.y} width={b.x-a.x} height={b.y-a.y} fill="#f5faf4" stroke="#88734a" strokeWidth="2" />
                 <text x={a.x+8} y={a.y+18} fontSize="13">{sheet.name}</text>
                 <text x={a.x+8} y={a.y+34} fontSize="10">{sheet.file}</text>
-                {target >= 0 && <foreignObject x={a.x+8} y={a.y+40} width="130" height="30"><button type="button" onClick={() => {setDocumentIndex(target);setZoom(1);setSelectedNetId(null);}}>打开子页</button></foreignObject>}
                 {sheet.pins.map((pin,i) => {const p=geometry.project(numericPoint(pin.position)!); const right=p.x>(a.x+b.x)/2;return <g key={i}><circle cx={p.x} cy={p.y} r="3" fill="#247849"/><text x={p.x+(right?-7:7)} y={p.y-4} textAnchor={right?"end":"start"} fontSize="10">{pin.name}</text></g>;})}
               </g>;
             })}
@@ -190,7 +212,8 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
             {(schematic.texts ?? []).map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
             {showPinNumbers && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
             {schematic.junctions.map((junction) => { const p = geometry.project(numericPoint(junction.position)!); return <circle className="schematic-junction" cx={p.x} cy={p.y} r="4.5" key={junction.id} />; })}
-            {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const left=Number(label.rotation??0)===180;return <text key={label.id} className="schematic-source-text" x={p.x+(left?-2:2)} y={p.y-2} textAnchor={left?"end":"start"} style={{fontSize:Number(label.size??1.27)*scale,fill:label.kind==="power"?"#a83e54":"#325c9a"}}>{label.name}</text>;})}
+            {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const left=Number(label.rotation??0)===180;return <text key={label.id} className="schematic-source-text" x={p.x+(label.kind==="power"?0:left?-2:2)} y={p.y-2} textAnchor={label.kind==="power"?"middle":left?"end":"start"} style={{fontSize:Number(label.size??1.27)*scale,fill:label.kind==="power"?"#a83e54":"#325c9a"}}>{label.name}</text>;})}
+            </g>
           </svg>
         </div>
         <aside className="viewer-inspector">

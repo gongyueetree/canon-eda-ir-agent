@@ -65,3 +65,28 @@ test('BOM candidate confirmation updates manufacturer, MPN and exported CSV',asy
  assert.ok(exported);assert.match(await exported.text(),/Analog Devices/);assert.match(await exported.text(),/AD9837BRMZ/);
  }finally{await act(async()=>root.unmount());globalThis.fetch=original;URL.createObjectURL=createURL;dom.window.close();}
 });
+
+test('schematic preserves power geometry and paper; wheel, drag and reset operate without block captions',async()=>{
+ const {SchematicViewer}=await import('../components/EdaViewers');
+ const source=`(kicad_sch (version 20250114) (paper "A4") (lib_symbols (symbol "power:GND" (symbol "GND_0_1" (polyline (pts (xy 0 0) (xy 0 -1.27) (xy 1.27 -1.27) (xy 0 -2.54) (xy -1.27 -1.27) (xy 0 -1.27)))))) (symbol (lib_id "power:GND") (at 50 50 0) (unit 1) (uuid "p") (property "Reference" "#PWR01") (property "Value" "GND" (at 50 54 0))))`;
+ const bundle=await parseEdaProject([{path:'power.kicad_sch',bytes:new TextEncoder().encode(source)}]);
+ assert.equal(bundle.parts.length,0);assert.equal(bundle.schematics[0].page?.width,297);assert.ok(bundle.schematics[0].graphics?.some(g=>g.points.length===6));
+ const dom=new JSDOM('<div id="schematic"></div>',{url:'http://localhost'});
+ Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+ const root=createRoot(document.getElementById('schematic')!);
+ try {
+  await act(async()=>root.render(<SchematicViewer bundle={bundle}/>));
+  const svg=document.querySelector('svg[role="img"]')!;
+  svg.getBoundingClientRect=()=>({x:0,y:0,left:0,top:0,width:1200,height:720,right:1200,bottom:720,toJSON(){}});
+  assert.ok(svg.querySelector('.schematic-page-frame'));assert.ok(!document.body.textContent?.includes('打开子页'));
+  const wheel=new dom.window.WheelEvent('wheel',{clientX:600,clientY:360,deltaY:-200,bubbles:true,cancelable:true});
+  await act(async()=>{svg.dispatchEvent(wheel);});assert.ok(wheel.defaultPrevented);assert.match(document.body.textContent!,/135%/);
+  const pointer=(type:string,x:number,y:number)=>{const e=new dom.window.MouseEvent(type,{clientX:x,clientY:y,bubbles:true,button:0});Object.defineProperty(e,'pointerId',{value:1});return e;};
+  await act(async()=>{svg.dispatchEvent(pointer('pointerdown',100,100));});
+  await act(async()=>{svg.dispatchEvent(pointer('pointermove',180,140));});
+  await act(async()=>{svg.dispatchEvent(pointer('pointerup',180,140));});
+  assert.ok(svg.querySelector('g[transform="translate(80 40)"]'));
+  await act(async()=>{([...document.querySelectorAll('button')].find(b=>b.textContent?.includes('适合窗口'))!).click();});
+  assert.ok(svg.querySelector('g[transform="translate(0 0)"]'));assert.match(document.body.textContent!,/100%/);
+ }finally{await act(async()=>root.unmount());dom.window.close();}
+});

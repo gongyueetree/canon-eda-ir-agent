@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { validateMiningInput } from "../lib/knowledge/validate";
 import { miningDemoFiles } from "../lib/knowledge/fixtures";
+import { BomWorkbench } from "./BomWorkbench";
 import { KnowledgeWorkbench } from "./KnowledgeWorkbench";
 import { apiFetch, setApiToken } from "../lib/client-api";
 import { strToU8, zipSync } from "fflate";
@@ -38,7 +39,7 @@ import { createDemoFiles, filesToInputAssets } from "../lib/eda/archive";
 import { createIrDomainExport, IR_DOMAIN_KEYS, type IrDomainKey } from "../lib/eda/export";
 import { parseEdaProject } from "../lib/eda/parse";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
-import { Board3DViewer, BomViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
+import { Board3DViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
 
 type ResultTab = "knowledge" | "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
 type AppView = "workspace" | "history" | "adapters";
@@ -240,6 +241,8 @@ function EmptyState({ onDemo, onUpload }: { onDemo: () => void; onUpload: () => 
 
 export default function EdaWorkbench() {
   const [view, setView] = useState<AppView>("workspace");
+  const [bomMappings,setBomMappings] = useState<Record<string,import("../lib/bom/types").BomMapping>>({});
+  const [sourceAssets,setSourceAssets] = useState<import("../lib/eda/types").InputAsset[]>([]);
   const [bundle, setBundle] = useState<CanonicalIrBundle | null>(null);
   const [activeTab, setActiveTab] = useState<ResultTab>("overview");
   const [isDragging, setIsDragging] = useState(false);
@@ -289,6 +292,8 @@ export default function EdaWorkbench() {
     const runId = ++parseRunIdRef.current;
     setError(null);
     setBundle(null);
+    setSourceAssets([]);
+    setBomMappings({});
     setIsParsing(true);
     setParseStage(0);
     setView("workspace");
@@ -316,6 +321,8 @@ export default function EdaWorkbench() {
       setParseStage(7);
       await new Promise((resolve) => setTimeout(resolve, 110));
       if (runId !== parseRunIdRef.current) return;
+      setSourceAssets(intake.assets);
+      setBomMappings(result.bomMappings ?? {});
       setBundle(result);
       setParseStage(PARSE_STAGES.length - 1);
     } catch (parseError) {
@@ -330,6 +337,8 @@ export default function EdaWorkbench() {
   const startNewProject = () => {
     parseRunIdRef.current += 1;
     setBundle(null);
+    setSourceAssets([]);
+    setBomMappings({});
     setView("workspace");
     setActiveTab("overview");
     setIsDragging(false);
@@ -352,7 +361,7 @@ export default function EdaWorkbench() {
       const response = await apiFetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(bundle),
+        body: JSON.stringify({...bundle,bomMappings}),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "保存失败");
@@ -369,6 +378,8 @@ export default function EdaWorkbench() {
       const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("读取失败");
       const data = await response.json();
+      setSourceAssets([]);
+      setBomMappings(data.bundle.bomMappings ?? {});
       setBundle(data.bundle as CanonicalIrBundle);
       setView("workspace");
       setActiveTab("overview");
@@ -525,7 +536,7 @@ export default function EdaWorkbench() {
           <div className="top-actions">
             {bundle && view === "workspace" && (
               <>
-                <button className="icon-text-button" onClick={() => downloadBundle(bundle)}><ArrowDownToLine size={16} /> 导出 JSON</button>
+                <button className="icon-text-button" onClick={() => downloadBundle({...bundle,bomMappings})}><ArrowDownToLine size={16} /> 导出 JSON</button>
                 <button className="save-button" onClick={saveToDatabase} disabled={!dbConfigured || saveState === "saving"} title={!dbConfigured ? "设置 DATABASE_URL 后可用" : "保存当前 IR Bundle"}>
                   {saveState === "saved" ? <Check size={16} /> : <Save size={16} />}
                   {saveState === "saving" ? "保存中" : saveState === "saved" ? "已保存" : "保存 Bundle"}
@@ -578,7 +589,7 @@ export default function EdaWorkbench() {
                 <div className={`fidelity-seal ${bundle.fidelity.overallStatus}`}><CircleGauge size={21} /><div><small>FIDELITY</small><strong>{statusLabel(bundle.fidelity.overallStatus)}</strong></div></div>
               </div>
 
-              {String(bundle.parser.adapterVersion) !== "1.2.0" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始 KiCad 工程，以补全原理图、PCB 和 3D 几何。</p>}
+              {String(bundle.parser.adapterVersion) !== "1.3.0" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始 KiCad 工程，以补全原理图、PCB 和 3D 几何。</p>}
               <div className="result-tabs" role="tablist">
                 {resultTabs.map((tab) => <button role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)} key={tab.id}>{tab.label}{tab.count !== undefined && <span>{tab.count}</span>}</button>)}
               </div>
@@ -689,11 +700,9 @@ export default function EdaWorkbench() {
                   </div>
                 )}
 
-                {activeTab === "3d" && <Board3DViewer bundle={bundle} />}
+                {activeTab === "3d" && <Board3DViewer bundle={bundle} assets={sourceAssets} />}
 
-                {activeTab === "parts" && (
-                  <BomViewer bundle={bundle} />
-                )}
+                <div hidden={activeTab !== "parts"}><BomWorkbench key={bundle.bundleId} bundle={bundle} mappings={bomMappings} onMapping={(id,m)=>{setBomMappings(previous=>({...previous,[id]:m}));setSaveState("idle");}} /></div>
 
                 {activeTab === "nets" && (
                   <article className="panel table-panel">
@@ -756,8 +765,8 @@ export default function EdaWorkbench() {
                         <p>下载不依赖数据库。ZIP 包包含五类独立 IR、完整 Bundle 和可直接运行的 JavaScript / Python 读取示例。</p>
                       </div>
                       <div className="export-hero-actions">
-                        <button type="button" onClick={() => downloadBundle(bundle)}><FileJson2 size={16} /> 完整 Bundle JSON</button>
-                        <button type="button" className="primary" onClick={() => downloadIrPackage(bundle)}><Archive size={16} /> 下载 IR 数据包 ZIP</button>
+                        <button type="button" onClick={() => downloadBundle({...bundle,bomMappings})}><FileJson2 size={16} /> 完整 Bundle JSON</button>
+                        <button type="button" className="primary" onClick={() => downloadIrPackage({...bundle,bomMappings})}><Archive size={16} /> 下载 IR 数据包 ZIP</button>
                       </div>
                     </article>
 
@@ -804,8 +813,8 @@ export default function EdaWorkbench() {
                     </article>
 
                     <article className="panel json-panel">
-                      <div className="panel-title"><div><Code2 size={18} /><strong>Canonical IR Bundle 预览</strong></div><button type="button" onClick={() => void copyValue(bundle, "bundle-json")}>{copyFeedback === "bundle-json" ? <Check size={14} /> : <Copy size={14} />} {copyFeedback === "bundle-json" ? "已复制" : "复制全部"}</button></div>
-                      <pre>{JSON.stringify(bundle, null, 2)}</pre>
+                      <div className="panel-title"><div><Code2 size={18} /><strong>Canonical IR Bundle 预览</strong></div><button type="button" onClick={() => void copyValue({...bundle,bomMappings}, "bundle-json")}>{copyFeedback === "bundle-json" ? <Check size={14} /> : <Copy size={14} />} {copyFeedback === "bundle-json" ? "已复制" : "复制全部"}</button></div>
+                      <pre>{JSON.stringify({...bundle,bomMappings}, null, 2)}</pre>
                     </article>
                   </div>
                 )}

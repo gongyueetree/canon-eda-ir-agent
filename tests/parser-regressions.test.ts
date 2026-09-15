@@ -469,3 +469,14 @@ test("rotated footprint uses sheet-down coordinates and preserves pad orientatio
   const b=await parseEdaProject([{path:"rotated.kicad_pcb",bytes:new TextEncoder().encode(`(kicad_pcb (version 20250114) (generator pcbnew) (layers (0 "F.Cu" signal) (31 "B.Cu" signal)) (footprint "Test" (layer "F.Cu") (at 10 20 90) (property "Reference" "J1") (pad "1" thru_hole oval (at 2 0 90) (size 3 2) (drill oval 1.5 1) (layers "*.Cu" "*.Mask"))))`)}]);
   const p=b.pcbs[0].pads[0];assert.equal(p.position?.x,"10");assert.equal(p.position?.y,"18");assert.equal(p.rotation,"90");assert.deepEqual(p.drill,{x:"1.5",y:"1"});
 });
+
+test('source property positions, font size and hide flags survive schematic parsing',async()=>{
+ const b=await parseEdaProject([{path:'labels.kicad_sch',bytes:new TextEncoder().encode(`(kicad_sch (version 20250114) (generator eeschema) (lib_symbols (symbol "Device:R" (symbol "R_1_1" (pin passive line (at 0 0 0) (length 1) (name "~") (number "1"))))) (symbol (lib_id "Device:R") (at 10 20 0) (unit 1) (property "Reference" "R1" (at 13 18 90) (effects (font (size 1.016 1.016)) (justify left))) (property "Value" "47" (at 14 19 0) (hide yes) (effects (font (size 1 1))))))`)}]);
+ assert.equal(b.schematics[0].texts?.length,1);const t=b.schematics[0].texts![0];assert.equal(t.position.x,'13');assert.equal(t.position.y,'18');assert.equal(t.rotation,'90');assert.equal(t.size,'1.016');assert.equal(t.align,'start');
+});
+
+
+test('property angle follows KiCad symbol-relative text orientation',async()=>{
+ const source=`(kicad_sch (version 20250114) (generator eeschema) (lib_symbols (symbol "Device:R" (symbol "R_1_1" (pin passive line (at 0 0 0) (length 1) (name "~") (number "1"))))) (symbol (lib_id "Device:R") (at 10 20 270) (unit 1) (property "Reference" "R76" (at 7 19 90) (effects (font (size 1 1))))))`;
+ const b=await parseEdaProject([{path:'rotated-text.kicad_sch',bytes:new TextEncoder().encode(source)}]);assert.equal(b.schematics[0].texts?.[0].rotation,'0');
+});

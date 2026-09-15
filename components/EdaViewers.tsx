@@ -16,6 +16,9 @@ import { useMemo, useState } from "react";
 import type { CanonicalIrBundle, IrPoint, PartIr, PcbIr } from "../lib/eda/types";
 
 import { arcPoints } from "../lib/eda/view-geometry";
+import { AssemblyScene } from "./AssemblyScene";
+import { modelAssets,boardAssembly } from "../lib/models/assets";
+import type {InputAsset} from "../lib/eda/types";
 import { BoardScene } from "./BoardScene";
 
 type NumericPoint = { x: number; y: number };
@@ -102,6 +105,7 @@ function ViewerToolbar({
 
 export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
   const [documentIndex, setDocumentIndex] = useState(0);
+  const [showPinNumbers,setShowPinNumbers] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [selectedNetId, setSelectedNetId] = useState<string | null>(null);
   const schematic = bundle.schematics[Math.min(documentIndex, Math.max(bundle.schematics.length - 1, 0))];
@@ -110,6 +114,7 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
   const geometry = useMemo(() => {
     if (!schematic) return undefined;
     const points = [
+      ...(schematic.texts ?? []).map(t=>numericPoint(t.position)),
       ...(schematic.graphics ?? []).flatMap(g => g.points.map(numericPoint)),
       ...(schematic.sheetBoxes ?? []).flatMap(sheet => [numericPoint(sheet.position), {x: Number(sheet.position.x)+Number(sheet.size.x), y: Number(sheet.position.y)+Number(sheet.size.y)}]),
       ...schematic.wires.flatMap((wire) => wire.points.map(numericPoint)),
@@ -133,6 +138,7 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
   return (
     <article className="panel eda-viewer-panel">
       <ViewerToolbar label={`Schematic · ${schematic.name}`} zoom={zoom} onZoom={setZoom}>
+        <button type="button" aria-pressed={showPinNumbers} onClick={()=>setShowPinNumbers(v=>!v)}>管脚编号 {showPinNumbers?"开":"关"}</button>
         {bundle.schematics.length > 1 && (
           <select aria-label="选择原理图文档" value={documentIndex} onChange={(event) => { setDocumentIndex(Number(event.target.value)); setSelectedNetId(null); }}>
             {bundle.schematics.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}
@@ -168,6 +174,7 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
               return points.length >= 2 ? <polyline className={`schematic-wire ${dimmed ? "dimmed" : ""} ${netId === selectedNetId ? "selected" : ""}`} points={points.map((point) => `${point.x},${point.y}`).join(" ")} key={wire.id} /> : null;
             })}
             {Array.from(new Set(schematic.pins.map((pin) => pin.symbolUnitId))).map((unitId) => {
+              if(schematic.texts?.some(t=>t.symbolUnitId===unitId))return null;
               const pins = schematic.pins.filter((pin) => pin.symbolUnitId === unitId);
               const positions = pins.map((pin) => numericPoint(pin.position)).filter((value): value is NumericPoint => Boolean(value));
               if (!positions.length) return null;
@@ -180,9 +187,10 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
               const part = partsById.get(pins[0].partId);
               return <g className="schematic-symbol" key={unitId}>{!(schematic.graphics ?? []).some(g => g.symbolUnitId === unitId) && <rect x={minX} y={minY} width={width} height={height} rx="3" />}<text x={minX + 7} y={minY + 14}>{part?.reference ?? pins[0].reference}</text><text className="symbol-value" x={minX + 7} y={minY + 27}>{part?.value ?? ""}</text></g>;
             })}
-            {schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
+            {(schematic.texts ?? []).map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
+            {showPinNumbers && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
             {schematic.junctions.map((junction) => { const p = geometry.project(numericPoint(junction.position)!); return <circle className="schematic-junction" cx={p.x} cy={p.y} r="4.5" key={junction.id} />; })}
-            {schematic.labels.map((label) => { const p = geometry.project(numericPoint(label.position)!); return <g className={`schematic-label ${label.kind}`} key={label.id}><path d={`M ${p.x} ${p.y} h 10`} /><text x={p.x + 13} y={p.y + 4}>{label.name}</text></g>; })}
+            {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const left=Number(label.rotation??0)===180;return <text key={label.id} className="schematic-source-text" x={p.x+(left?-2:2)} y={p.y-2} textAnchor={left?"end":"start"} style={{fontSize:Number(label.size??1.27)*scale,fill:label.kind==="power"?"#a83e54":"#325c9a"}}>{label.name}</text>;})}
           </svg>
         </div>
         <aside className="viewer-inspector">
@@ -306,11 +314,13 @@ export function PcbViewer({ bundle }: { bundle: CanonicalIrBundle }) {
   );
 }
 
-export function Board3DViewer({ bundle }: { bundle: CanonicalIrBundle }) {
-  const [index, setIndex] = useState(0);
-  const pcb=bundle.pcbs[Math.min(index, Math.max(0,bundle.pcbs.length-1))];
-  if(!pcb) return <EmptyViewer kind="3D PCB" format={bundle.project.sourceFormat}/>;
-  return <article className="panel board-3d-panel"><div className="viewer-toolbar"><strong>PCB 3D · {pcb.name}</strong><select aria-label="选择 3D PCB 文档" value={index} onChange={e=>setIndex(Number(e.target.value))}>{bundle.pcbs.map((p,i)=><option key={p.id} value={i}>{p.name}</option>)}</select></div><BoardScene key={pcb.id} pcb={pcb}/><div className="viewer-status">拖动旋转，滚轮缩放。显示源板框、焊盘和钻孔；当前未加载 STEP/WRL 器件模型。未解析的覆铜和封装图形不显示。</div></article>;
+export function Board3DViewer({ bundle,assets=[] }: { bundle: CanonicalIrBundle;assets?:InputAsset[] }) {
+  const [index,setIndex]=useState(0),[choice,setChoice]=useState("auto");
+  const pcb=bundle.pcbs[Math.min(index,Math.max(0,bundle.pcbs.length-1))];
+  if(!pcb)return <EmptyViewer kind="3D PCB" format={bundle.project.sourceFormat}/>;
+  const models=modelAssets(assets),assembly=boardAssembly(pcb,models);
+  const selected=choice==="auto"?assembly:models.find(a=>a.path===choice);
+  return <article className="panel board-3d-panel"><div className="viewer-toolbar"><strong>PCB 3D · {pcb.name}</strong><select aria-label="选择 3D PCB 文档" value={index} onChange={e=>{setIndex(Number(e.target.value));setChoice("auto");}}>{bundle.pcbs.map((p,i)=><option key={p.id} value={i}>{p.name}</option>)}</select><select aria-label="选择实体模型" value={choice} onChange={e=>setChoice(e.target.value)}><option value="auto">{assembly?"工程装配实体（自动）":"IR 板体（没有同名装配模型）"}</option><option value="ir">仅 IR 板体 / 焊盘</option>{models.map(a=><option key={a.path} value={a.path}>模型文件：{a.path}</option>)}</select></div>{selected?<AssemblyScene key={selected.path} asset={selected}/>:<BoardScene key={pcb.id} pcb={pcb}/>}<div className="viewer-status">{selected?"显示源文件中的实体与颜色；装配模型可能与当前 PCB 版本不同，请核对导出时间。":"请在工程 ZIP 中包含同名 WRL/STEP 装配模型。已保存的 JSON 不含模型二进制，需要重新导入源工程。"}</div></article>;
 }
 
 type BomRow = {

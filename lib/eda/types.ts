@@ -125,6 +125,7 @@ export type SchematicIr = {
   name: string;
   rootSheetId: string;
   sheets: Array<{ id: string; name: string; instancePath: string }>;
+  texts?: Array<{ id: string; symbolUnitId?: string; text: string; kind: string; position: IrPoint; rotation: string; size: string; align: "start" | "middle" | "end" }>;
   sheetBoxes?: Array<{ id: string; name: string; file: string; position: IrPoint; size: { x: string; y: string }; pins: Array<{ name: string; position: IrPoint }> }>;
   graphics?: Array<{ id: string; symbolUnitId: string; points: IrPoint[]; closed: boolean }>;
   symbolInstanceIds: string[];
@@ -145,6 +146,9 @@ export type SchematicIr = {
     id: string;
     name: string;
     kind: "local" | "global" | "hierarchical" | "power";
+    textPosition?: IrPoint;
+    rotation?: string;
+    size?: string;
     position: IrPoint;
     sourceRef: SourceRef;
   }>;
@@ -261,14 +265,15 @@ export type FidelityDimension = {
 };
 
 export type CanonicalIrBundle = {
+  bomMappings?: Record<string, import("../bom/types").BomMapping>;
   pdfEvidence?: import("../knowledge/types").PdfEvidenceDocument[];
   bundleId: string;
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.2.0";
+    agentVersion: "1.3.0";
     adapterId: string;
-    adapterVersion: "1.2.0";
+    adapterVersion: "1.3.0";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

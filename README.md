@@ -20,11 +20,11 @@ CANON 是一个只读、确定性的 EDA 工程解析 Agent。它在浏览器中
 
 - **原理图**：按文档/Sheet 切换，显示 Symbol、Pin、Wire、Junction、Label，并可按网络高亮。
 - **PCB 2D**：显示板框、Footprint、Pad、Track、Via，支持图层显隐、网络高亮与缩放。
-- **PCB 3D**：使用 Three.js/WebGL 从闭合 Edge.Cuts 生成可旋转、缩放的板体，显示按源尺寸绘制的焊盘和钻孔。
-- **BOM**：按 Value、Footprint、MPN 和装配状态合并，支持搜索、过滤与 CSV 下载。
+- **PCB 3D**：优先加载工程中同名 WRL/STEP 装配实体；可切换单独模型文件或按 IR 生成的板体/焊盘。
+- **BOM**：按 Value、Footprint、厂商、MPN 和装配状态合并；支持非无源器件多源查询、候选确认、厂商补全和 CSV 导出。
 - **Netlist**：显示逻辑/物理网络、具体 Endpoint 和跨文档链接，支持搜索、展开与 CSV 下载。
 
-3D 页面是基于 Canonical PCB IR 的板级几何预览，不加载或渲染 STEP/WRL 实体模型。KiCad 与 EasyEDA Standard 的已规范化几何可直接显示；JLCEDA Pro 显示当前已映射 Record。Altium 二进制 SchDoc/PcbDoc 目前仍是 CFB 结构级摄取，页面会明确显示不可视原因，不会伪造器件或连线。生产级 Altium 在线查看需要完整的版本化 CFB Record Adapter，或由 Altium 导出 IPC-2581 / ODB++ / Gerber、BOM、Netlist 等开放交换数据。
+3D 页面支持自包含 VRML 2.0 和 STEP/STP 实体模型。默认选择与 PCB 同路径同名的装配文件（优先 WRL）；没有装配文件时显示 IR 板体。当前不自动从全局 KiCad 模型库下载缺失器件，也不把零散模型猜测放置到板上。KiCad 与 EasyEDA Standard 的已规范化几何可直接显示；JLCEDA Pro 显示当前已映射 Record。Altium 二进制 SchDoc/PcbDoc 目前仍是 CFB 结构级摄取，页面会明确显示不可视原因，不会伪造器件或连线。生产级 Altium 在线查看需要完整的版本化 CFB Record Adapter，或由 Altium 导出 IPC-2581 / ODB++ / Gerber、BOM、Netlist 等开放交换数据。
 
 ## 真实能力边界
 
@@ -187,3 +187,36 @@ npm run mine:batch -- fixtures/mining/manifest.json outputs/mining
 - “保存候选到知识库”保存原始候选后保留本地修改，再以“保存修改”提交当前功能块。云端审核仍需要已配置的数据库和访问密钥；连接证据不足时不能批准。
 
 回归测试含成员选择、切换功能块后保留修改、导出修改结果、层级子页几何、旋转焊盘和圆弧。尚未使用用户截图所对应的 OpenScope 源工程进行浏览器/WebGL 视觉验收。
+
+
+### 1.3.0 原理图文字、装配模型和 BOM 主数据
+
+更新后重新导入原始 ZIP。KiCad Reference/Value 文字采用源坐标、字号、隐藏属性和结合符号旋转后的文字方向；默认隐藏管脚编号，可在工具栏开启。网络标签不再以描边叠加填充绘制。
+
+上传的 `Openscope_RP2040.zip` 已验证能解析出 156 个器件、9 张原理图和 310 个属性文字；内含的装配 WRL 有 153,299 个三角面，按相同材质合并后从 8,674 个网格降到 62 个，整体尺寸误差低于 0.00001 mm。STEP 实测转换得到 227 个网格。上述为解析/几何检查；本次未完成浏览器 WebGL 交互验收，因为验证浏览器无法访问本地服务。
+
+#### BOM 使用方法
+
+1. 打开 BOM，点击“匹配非无源器件”。默认跳过 R/C/L/FB、安装孔、测试点以及 DNP/排除装配行。
+2. ezPLM 主数据库优先。完整料号唯一命中且厂商可确定时填充结果；否则查询 Iceasy、DigiKey、Mouser 并汇总候选。保留后缀和标点，不将相似型号当成同型号。
+3. 点击“查看 / 匹配”，可以修改检索型号、查看数据源查询状态、确认候选。多厂商或封装管脚数冲突必须人工确认。自动匹配仅验证物料身份，不代替封装或电气兼容性审查。
+4. 下载映射后 CSV。完整 Bundle JSON、IR 包中的完整 Bundle 和保存工程都包含 `bomMappings`；原始 `parts` 中的设计字段不覆盖。只有已验证/人工确认的型号进入映射列，候选不会被导出为确定料号。
+
+接口为 `POST /api/bom/resolve`（一次一行），`GET /api/bom/resolve` 返回配置状态。沿用当前工程的 `EDA_API_TOKEN` 鉴权，不依赖数据库即可查询。前端最多并发两行、支持停止并保留已完成结果；服务端各请求有超时、每个实例最多缓存 256 次成功查询一小时，不缓存失败，不使用演示目录冒充真实查询。
+
+#### 在当前 Vercel 项目配置 API
+
+不同 Vercel 项目的环境变量不会自动继承，请将 bom2buy 中对应变量配置到本项目，部署后在页面设置 `EDA_API_TOKEN` 对应的访问密钥：
+
+| 数据源 | 必需变量 | 可选变量 |
+| --- | --- | --- |
+| ezPLM | `EZPLM_API_BASE`、`EZPLM_API_KEY` | `EZPLM_API_SECRET`、`EZPLM_SIGN_ENCODING`、`EZPLM_SIGN_DELIMITER` |
+| Iceasy | `ICEASY_ACCOUNT`、`ICEASY_PASSWORD` | `ICEASY_API_URL`、`ICEASY_TZ`、`ICEASY_PROXY_URL`、`ICEASY_PROXY_TOKEN` |
+| DigiKey | `DIGIKEY_CLIENT_ID`、`DIGIKEY_CLIENT_SECRET` | `DIGIKEY_ENV=production`（测试账户用 sandbox）、`DIGIKEY_MOCK=false` |
+| Mouser | `MOUSER_API_KEY` | 无 |
+
+Iceasy 的固定出口代理配置沿用 bom2buy 的表单和 `X-Proxy-Token`/`X-Target-Url` 机制。所有供应商密钥仅用于服务端，不使用 `NEXT_PUBLIC_`。本次开发环境未提供这些真实凭据；已完成签名黄金样例、响应适配、错误处理及 UI 确认/导出的测试，真实接口联调需在已配置凭据的部署中验证。
+
+STEP 转换在 Web Worker 中运行，使用 [occt-import-js](https://github.com/kovacsv/occt-import-js)（LGPL-2.1）和 Open CASCADE。安装依赖时复制 JS/WASM 与许可证到 `/occt/`；源代码及构建说明见上述项目，可替换对应独立库文件。Three.js 使用其 MIT 许可的 VRMLLoader。
+
+使用 `npm run verify:project -- /path/to/Openscope_RP2040.zip` 可本地复现源工程与装配模型检查；命令不会把工程上传到外部服务。

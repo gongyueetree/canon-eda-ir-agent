@@ -510,3 +510,14 @@ td code { color: #718078; font-size: 8px; }
 .pcb-source-graphics .pcb-outline { stroke: #d6dfd8; stroke-width: .7; opacity: .7; }
 .knowledge-workbench input:disabled { background: #eef1ed; color: #667065; cursor: not-allowed; }
 .knowledge-layout-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.schematic-source-text { font-family: sans-serif; font-weight: 400; stroke: #f5f8f5; stroke-width: 2px; paint-order: stroke fill; stroke-linejoin: round; }
+
+.bom-mapping { overflow: hidden; }
+.bom-mapping small { display:block; color:#687b70; max-width:380px; overflow-wrap:anywhere; }
+.bom-mapping td:first-child { max-width:280px; overflow-wrap:anywhere; }
+.bom-candidates { padding:18px; background:#f4f8f5; font-size:13px; }
+.bom-candidate { display:flex; justify-content:space-between; gap:16px; border-top:1px solid #dce5dd; padding:12px 0; }
+.bom-mapping button { padding:7px 10px; border:1px solid #cad9ce; border-radius:5px; background:white; color:#234737; cursor:pointer; }
+.bom-mapping button:disabled { opacity:.5; cursor:not-allowed; }
+.bom-mapping input { padding:6px; border:1px solid #c7d6cc; border-radius:4px; }

@@ -330,6 +330,7 @@ function parseSchematic(
   const pinAnchors: PinAnchor[] = [];
   const powerLabels: SchematicIr["labels"] = [];
   const graphics: NonNullable<SchematicIr["graphics"]> = [];
+  const texts: NonNullable<SchematicIr["texts"]> = [];
   const sourceMap: SourceRef[] = [fileRef];
   const symbolNodes = directChildren(root, "symbol");
   for (const [index, symbolNode] of symbolNodes.entries()) {
@@ -351,11 +352,15 @@ function parseSchematic(
         const [x, y] = powerPin
           ? schematicPinPoint(powerPin.x, powerPin.y, at[0], at[1], at[2])
           : [at[0], at[1]];
+        const valueProperty=directChildren(symbolNode,"property").find(n=>atom(n.items[1])==="Value");
+        const textAt=valueProperty && nodeAt(valueProperty);
         const name = fields.Value || libraryId.replace(/^power:/, "") || reference;
         powerLabels.push({
           id: stableId("label", schematicId, nativeId, "power"),
           name,
           kind: "power",
+          textPosition:textAt?point(textAt[0],textAt[1]):undefined,
+          rotation:textAt?String((Number(textAt[2])+Number(at[2]))%180):"0",
           position: point(x, y)!,
           sourceRef: ref,
         });
@@ -377,12 +382,23 @@ function parseSchematic(
       symbolUnits: [],
       footprint: fields.Footprint || undefined,
       fields,
-      manufacturerRaw: fields.Manufacturer,
-      mpnRaw: fields.MPN || fields["Manufacturer Part Number"],
+      manufacturerRaw: fields.Manufacturer || fields.Manufacturer_Name || fields.Mfr || fields.MFR || fields["制造商"] || fields["厂商"],
+      mpnRaw: fields.MPN || fields["Manufacturer Part Number"] || fields.Manufacturer_Part_Number || fields.Mfr_PN || fields["制造商料号"],
       variantStatus,
       pinPadMap: [],
       sourceRefs: [],
     };
+    for (const property of directChildren(symbolNode, "property")) {
+      const kind = atom(property.items[1]) ?? "";
+      if (!["Reference", "Value"].includes(kind)) continue;
+      const effects = firstChild(property,"effects"), pa = nodeAt(property);
+      const hidden = childValue(property,"hide") === "yes" || !!(effects && (firstChild(effects,"hide") || effects.items.some(n=>n.kind==="atom" && n.value==="hide")));
+      if (!pa || hidden) continue;
+      const font = effects && firstChild(effects,"font"), size = font && firstChild(font,"size");
+      const justify = effects && firstChild(effects,"justify");
+      const alignment = justify?.items.map(atom);
+      texts.push({id:stableId("text",unitId,kind),symbolUnitId:unitId,text:atom(property.items[2]) ?? "",kind,position:point(pa[0],pa[1])!,rotation:String(((Number(pa[2])+Number(at?.[2]??0))%180+180)%180),size:atom(size?.items[1]) ?? "1.27",align:alignment?.includes("left")?"start":alignment?.includes("right")?"end":"middle"});
+    }
     part.symbolUnits.push({ id: unitId, unit, position: at ? point(at[0], at[1]) : undefined, rotation: at?.[2] });
     part.sourceRefs.push(ref);
     partsByReference.set(reference, part);
@@ -467,7 +483,7 @@ function parseSchematic(
         const nativeId = nodeUuid(labelNode, `${nodeHead}:${index}`);
         const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: labelNode.span.line, column: labelNode.span.column });
         sourceMap.push(ref);
-        return [{ id: stableId("label", schematicId, nativeId), name, kind, position: point(at[0], at[1])!, sourceRef: ref }];
+        return [{ id: stableId("label", schematicId, nativeId), name, kind, rotation:at[2], size:childValue(firstChild(firstChild(labelNode,"effects") ?? labelNode,"font") ?? labelNode,"size") ?? "1.27", position: point(at[0], at[1])!, sourceRef: ref }];
       }),
     ),
     ...powerLabels,
@@ -484,6 +500,7 @@ function parseSchematic(
     rootSheetId: stableId("sheet", schematicId, "/"),
     sheets: [{ id: stableId("sheet", schematicId, "/"), name: withoutExtension(asset.fileName), instancePath: "/" }],
     graphics,
+    texts,
     sheetBoxes: directChildren(root, "sheet").flatMap((node, index) => {
       const at = nodeAt(node), size = firstChild(node, "size"); if (!at || !size) return [];
       const fields = propertyMap(node);

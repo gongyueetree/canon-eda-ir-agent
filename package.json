@@ -12,17 +12,19 @@
     "dev:vercel": "next dev",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run test:parser && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:parser": "node --import tsx --test tests/parser-regressions.test.ts tests/knowledge.test.ts tests/viewer-interactions.test.tsx",
+    "test:parser": "node --import tsx --test tests/parser-regressions.test.ts tests/knowledge.test.ts tests/viewer-interactions.test.tsx tests/bom-mapping.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern schematic-reconstruction",
     "postinstall": "node scripts/prepare-pdf.mjs",
     "test:knowledge": "node --import tsx --test tests/knowledge.test.ts",
-    "mine:batch": "node --import tsx scripts/batch-mine.ts"
+    "mine:batch": "node --import tsx scripts/batch-mine.ts",
+    "verify:project": "node --import tsx scripts/verify-project.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "fflate": "^0.8.3",
     "lucide-react": "^1.25.0",
     "next": "16.2.6",
+    "occt-import-js": "^0.0.23",
     "pdfjs-dist": "^6.3.289",
     "react": "19.2.6",
     "react-dom": "19.2.6",

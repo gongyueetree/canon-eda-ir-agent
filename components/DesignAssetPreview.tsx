@@ -4,7 +4,7 @@ import type { AssetRecord,ExtractedAsset } from '../lib/design-assets/types';
 import type { CanonicalIrBundle,InputAsset } from '../lib/eda/types';
 import { candidateFile } from '../lib/design-assets/client';
 import { a,parse,serialize } from '../lib/design-assets/kicad';
-import { allDescendants,atom,childValue,directChildren } from '../lib/eda/sexpr';
+import { allDescendants,atom,childValue,directChildren,firstChild } from '../lib/eda/sexpr';
 import { parseEdaProject } from '../lib/eda/parse';
 import { SchematicViewer,PcbViewer } from './EdaViewers';
 import { AssemblyScene } from './AssemblyScene';
@@ -20,10 +20,20 @@ export function DesignAssetPreview({asset,active=true}:{asset:ExtractedAsset|Ass
   const body=directChildren(root,'symbol')[0];if(!body)throw Error('符号文件为空');const symbolName=atom(body.items[1])!;
   const units=[...new Set(directChildren(body,'symbol').map(n=>Number(atom(n.items[1])?.match(/_(\d+)_\d+$/)?.[1]??1)).filter(n=>n>0))];if(!units.length)units.push(1);
   body.items[1]=a('Extracted:'+symbolName,true);const defs=serialize(body);
-  text=`(kicad_sch (version 20250114) (lib_symbols ${defs}) ${units.map((u,i)=>`(symbol (lib_id ${JSON.stringify('Extracted:'+symbolName)}) (at ${40+i*50} 50 0) (unit ${u}) (uuid "preview-${u}") (property "Reference" "U${u}" (at ${40+i*50} 25 0)) (property "Value" ${JSON.stringify(asset.mpn)}))`).join(' ')})`;name='preview.kicad_sch';
+  const instances=units.map((u,i)=>{
+   const x=40+i*50,y=50;
+   const properties=directChildren(body,'property').filter(p=>['Reference','Value'].includes(atom(p.items[1])??'')).map(p=>{
+    const copy=parse(serialize(p)),at=firstChild(copy,'at');
+    if(at){at.items[1]=a(String(x+Number(atom(at.items[1])??0)));at.items[2]=a(String(y-Number(atom(at.items[2])??0)));}
+    else copy.items.push(parse(`(at ${x+5} ${y-5} 0)`));
+    return serialize(copy);
+   }).join(' ');
+   return `(symbol (lib_id ${JSON.stringify('Extracted:'+symbolName)}) (at ${x} ${y} 0) (unit ${u}) (uuid "preview-${u}") ${properties})`;
+  });
+  text=`(kicad_sch (version 20250114) (lib_symbols ${defs}) ${instances.join(' ')})`;name='preview.kicad_sch';
   setPins(allDescendants(body,'pin').map(p=>({number:childValue(p,'number')??'',name:childValue(p,'name')??'',type:atom(p.items[1])??''})));
  }else{text=`(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal) (31 "B.Cu" signal)) ${serialize(root)})`;name='preview.kicad_pcb';}
  const parsed=await parseEdaProject([{path:name,bytes:new TextEncoder().encode(text)}]);if(!cancelled)setBundle(parsed);
  })().catch(e=>{if(!cancelled)setError(String(e));});return()=>{cancelled=true;};},[asset]);
- return <article className="design-preview"><h4>{asset.kind==='symbol'?'原理图符号':asset.kind==='footprint'?'PCB 封装':'3D 模型'} · {asset.name}</h4><small>指纹 {asset.fingerprint.slice(0,16)} · {asset.origins.length} 个来源</small>{error?<p role="alert">{error}</p>:asset.kind==='model'?(file?<AssemblyScene asset={file} active={active}/>:<p>正在加载模型…</p>):bundle?(asset.kind==='symbol'?<SchematicViewer bundle={bundle}/>:<PcbViewer bundle={bundle}/>):<p>正在加载预览…</p>}{pins.length>0&&<details><summary>管脚定义（{pins.length}）</summary><table><thead><tr><th>编号</th><th>名称</th><th>电气类型</th></tr></thead><tbody>{pins.map((p,i)=><tr key={i}><td>{p.number}</td><td>{p.name}</td><td>{p.type}</td></tr>)}</tbody></table></details>}</article>;
+ return <article className="design-preview"><h4>{asset.kind==='symbol'?'原理图符号':asset.kind==='footprint'?'PCB 封装':'3D 模型'} · {asset.name}</h4><small>指纹 {asset.fingerprint.slice(0,16)} · {asset.origins.length} 个来源</small>{error?<p role="alert">{error}</p>:asset.kind==='model'?(file?<AssemblyScene asset={file} active={active}/>:<p>正在加载模型…</p>):bundle?(asset.kind==='symbol'?<SchematicViewer bundle={bundle} library/>:<PcbViewer bundle={bundle} library/>):<p>正在加载预览…</p>}{pins.length>0&&<details><summary>管脚定义（{pins.length}）</summary><table><thead><tr><th>编号</th><th>名称</th><th>电气类型</th></tr></thead><tbody>{pins.map((p,i)=><tr key={i}><td>{p.number}</td><td>{p.name}</td><td>{p.type}</td></tr>)}</tbody></table></details>}</article>;
 }

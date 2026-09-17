@@ -49,7 +49,7 @@ export function DesignAssetWorkbench({bundle,assets,mappings,active=true}:{bundl
   {!assets.length&&<p>此结果仅含 IR。请重新导入源工程以提取库文件；仍可查询数据库中的候选和已入库资产。</p>}
   <div className="design-actions"><input aria-label="按 MPN 搜索设计资产" placeholder="搜索 MPN" value={query} onChange={e=>setQuery(e.target.value)}/><label><input type="checkbox" checked={conflicts} onChange={e=>setConflicts(e.target.checked)}/>仅显示同一 MPN 的多个资产版本</label></div>
   {status&&<p role="status">{status}</p>}{error&&<p role="alert" className="design-error">{error}</p>}
-  {compare.length>0&&<div><div className="design-actions"><strong>并列预览（最多 4 项）</strong><button onClick={()=>setCompare([])}>关闭预览</button></div><div className="design-comparison">{compare.map(a=><DesignAssetPreview key={a.id} asset={a} active={active}/>)}</div></div>}
+  {compare.length>0&&<div><div className="design-actions"><strong>并列预览（最多 4 项）</strong><button onClick={()=>setCompare([])}>关闭预览</button></div><div className="design-comparison">{compare.map(a=>{const current=local.find(x=>x.id===a.id)??saved.find(x=>x.id===a.id)??a;return <DesignAssetPreview key={a.id+JSON.stringify(current.official??null)} asset={current} active={active}/>;})}</div></div>}
   <h3>本次提取 · {local.length} 项独立资产</h3>
   {groups.slice(0,80).map(([key,items])=>{const first=items[0],edit=identity[key]??{mpn:first.mpn,manufacturer:first.manufacturer};return <article className="design-group" key={key}>
    <div className="design-actions"><strong>{first.manufacturer||'厂商待确认'} · {first.mpn}</strong><span>{items.every(a=>a.identityConfirmed)?'MPN 已明确':'待确认 MPN'}</span></div>

@@ -50,10 +50,10 @@ function boundsOf(points: Array<NumericPoint | undefined>): Bounds | undefined {
   return { minX: minX - width * 0.04, minY: minY - height * 0.04, maxX: maxX + width * 0.04, maxY: maxY + height * 0.04 };
 }
 
-function projector(bounds: Bounds, zoom: number) {
+function projector(bounds: Bounds, zoom: number, maxScale = Infinity) {
   const width = Math.max(bounds.maxX - bounds.minX, 1);
   const height = Math.max(bounds.maxY - bounds.minY, 1);
-  const scale = Math.min((VIEW_WIDTH - VIEW_PADDING * 2) / width, (VIEW_HEIGHT - VIEW_PADDING * 2) / height) * zoom;
+  const scale = Math.min((VIEW_WIDTH - VIEW_PADDING * 2) / width, (VIEW_HEIGHT - VIEW_PADDING * 2) / height, maxScale) * zoom;
   const contentWidth = width * scale;
   const contentHeight = height * scale;
   const offsetX = (VIEW_WIDTH - contentWidth) / 2;
@@ -104,9 +104,9 @@ function ViewerToolbar({
   );
 }
 
-export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
+export function SchematicViewer({ bundle, library = false }: { bundle: CanonicalIrBundle; library?: boolean }) {
   const [documentIndex, setDocumentIndex] = useState(0);
-  const [showPinNumbers,setShowPinNumbers] = useState(false);
+  const [showPinNumbers,setShowPinNumbers] = useState(library);
   const [zoom, setZoom] = useState(1);
   const [pan,setPan] = useState({x:0,y:0});
   const svgRef = useRef<SVGSVGElement>(null);
@@ -144,22 +144,22 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
       ...schematic.labels.map((label) => numericPoint(label.position)),
       ...schematic.junctions.map((junction) => numericPoint(junction.position)),
     ];
-    const bounds = schematic.page ? {minX:0,minY:0,maxX:schematic.page.width,maxY:schematic.page.height} : boundsOf(points);
+    const bounds = !library && schematic.page ? {minX:0,minY:0,maxX:schematic.page.width,maxY:schematic.page.height} : boundsOf(points);
     if (!bounds) return undefined;
-    const project = projector(bounds, zoom);
+    const project = projector(bounds, zoom, library ? 32 : Infinity);
     const wireNet = new Map<string, string>();
     for (const net of bundle.nets.filter((net) => net.domain === "schematic_logical")) {
       for (const segmentId of net.segmentIds) wireNet.set(segmentId, net.id);
     }
     return { bounds, project, wireNet };
-  }, [bundle.nets, schematic, zoom]);
+  }, [bundle.nets, schematic, zoom, library]);
 
   if (!schematic || !geometry) return <EmptyViewer kind="原理图" format={bundle.project.sourceFormat} />;
   const documentNets = bundle.nets.filter((net) => net.domain === "schematic_logical" && net.sourceRefs.some((ref) => schematic.sourceRefs.some((source) => source.path === ref.path)));
 
   return (
-    <article className="panel eda-viewer-panel">
-      <ViewerToolbar label={`Schematic · ${schematic.name}`} zoom={zoom} onZoom={next=>{if(next===1) resetView(); else {setPan(p=>({x:p.x*next/zoom,y:p.y*next/zoom}));setZoom(next);}}}>
+    <article className={`panel eda-viewer-panel ${library ? "library-viewer" : ""}`}>
+      <ViewerToolbar label={library ? "符号库预览" : `Schematic · ${schematic.name}`} zoom={zoom} onZoom={next=>{if(next===1) resetView(); else {setPan(p=>({x:p.x*next/zoom,y:p.y*next/zoom}));setZoom(next);}}}>
         <button type="button" aria-pressed={showPinNumbers} onClick={()=>setShowPinNumbers(v=>!v)}>管脚编号 {showPinNumbers?"开":"关"}</button>
         {bundle.schematics.length > 1 && (
           <select aria-label="选择原理图文档" value={documentIndex} onChange={(event) => { setDocumentIndex(Number(event.target.value)); resetView(); setSelectedNetId(null); }}>
@@ -175,7 +175,7 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
             </defs>
             <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill={`url(#schematic-grid-${documentIndex})`} />
             <g transform={`translate(${pan.x} ${pan.y})`}>
-            {schematic.page && (()=>{const a=geometry.project({x:10,y:10}),b=geometry.project({x:schematic.page.width-10,y:schematic.page.height-10});return <g className="schematic-page-frame" fill="none" stroke="#88734a" strokeWidth="1"><rect x={a.x} y={a.y} width={b.x-a.x} height={b.y-a.y}/><text x={b.x-8} y={b.y-8} textAnchor="end" fill="#69786e" stroke="none" fontSize="11">{schematic.page.title || schematic.name}</text></g>;})()}
+            {!library && schematic.page && (()=>{const a=geometry.project({x:10,y:10}),b=geometry.project({x:schematic.page.width-10,y:schematic.page.height-10});return <g className="schematic-page-frame" fill="none" stroke="#88734a" strokeWidth="1"><rect x={a.x} y={a.y} width={b.x-a.x} height={b.y-a.y}/><text x={b.x-8} y={b.y-8} textAnchor="end" fill="#69786e" stroke="none" fontSize="11">{schematic.page.title || schematic.name}</text></g>;})()}
             {(schematic.sheetBoxes ?? []).map(sheet => {
               const a = geometry.project(numericPoint(sheet.position)!);
               const b = geometry.project({x:Number(sheet.position.x)+Number(sheet.size.x), y:Number(sheet.position.y)+Number(sheet.size.y)});
@@ -235,11 +235,11 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
             </g>
           </svg>
         </div>
-        <aside className="viewer-inspector">
+        {!library && <aside className="viewer-inspector">
           <div className="inspector-title"><Layers3 size={15} /><strong>网络导航</strong><span>{documentNets.length}</span></div>
           <button type="button" className={!selectedNetId ? "active" : ""} onClick={() => setSelectedNetId(null)}>显示全部网络</button>
           {documentNets.slice(0, 160).map((net) => <button type="button" className={selectedNetId === net.id ? "active" : ""} title={net.canonicalName} onClick={() => setSelectedNetId(net.id)} key={net.id}><i /><span>{net.canonicalName}</span><b>{net.endpoints.length}</b></button>)}
-        </aside>
+        </aside>}
       </div>
       <div className="viewer-status"><span>{schematic.symbolInstanceIds.length} symbols</span><span>{schematic.wires.length} wires</span><span>{schematic.labels.length} labels</span><span>{schematic.junctions.length} junctions</span><strong>Canonical geometry · source coordinates preserved</strong></div>
     </article>
@@ -255,7 +255,18 @@ function pcbBounds(pcb: PcbIr): Bounds | undefined {
   return boundsOf([
     ...geometryPoints,
     ...pcb.footprints.map((item) => numericPoint(item.position)),
-    ...pcb.pads.map((item) => numericPoint(item.position)),
+    ...pcb.pads.flatMap(item => {
+      const p=numericPoint(item.position);if(!p)return [];
+      const r=Number(item.rotation??0)*Math.PI/180,c=Math.abs(Math.cos(r)),s=Math.abs(Math.sin(r));
+      const x=(Number(item.size?.x??0)*c+Number(item.size?.y??0)*s)/2;
+      const y=(Number(item.size?.x??0)*s+Number(item.size?.y??0)*c)/2;
+      return [{x:p.x-x,y:p.y-y},{x:p.x+x,y:p.y+y}];
+    }),
+    ...pcb.footprints.flatMap(fp=>(fp.graphics??[]).flatMap(g=>{
+      const p=numericPoint(fp.position);if(!p)return [];
+      const r=-Number(fp.rotation??0)*Math.PI/180;
+      return ['start','mid','end','center'].flatMap(k=>{const q=numericPoint(g.geometry[k] as IrPoint|undefined);return q?[{x:p.x+q.x*Math.cos(r)-q.y*Math.sin(r),y:p.y+q.x*Math.sin(r)+q.y*Math.cos(r)}]:[];});
+    })),
     ...pcb.tracks.flatMap((item) => [numericPoint(item.start), numericPoint(item.mid), numericPoint(item.end)]),
     ...pcb.vias.map((item) => numericPoint(item.position)),
   ]);
@@ -295,29 +306,30 @@ function outlineElement(item: PcbIr["boardOutline"][number], project: (point: Nu
   return null;
 }
 
-export function PcbViewer({ bundle }: { bundle: CanonicalIrBundle }) {
+export function PcbViewer({ bundle, library = false }: { bundle: CanonicalIrBundle; library?: boolean }) {
   const [documentIndex, setDocumentIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
-  const [showLabels, setShowLabels] = useState(false);
+  const [showLabels, setShowLabels] = useState(library);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
   const [selectedNetId, setSelectedNetId] = useState<string | null>(null);
   const pcb = bundle.pcbs[Math.min(documentIndex, Math.max(bundle.pcbs.length - 1, 0))];
   const bounds = pcb ? pcbBounds(pcb) : undefined;
   if (!pcb || !bounds) return <EmptyViewer kind="PCB" format={bundle.project.sourceFormat} />;
-  const project = projector(bounds, zoom);
+  const project = projector(bounds, zoom, library ? 100 : Infinity);
   const scale = project({x:1,y:0}).x-project({x:0,y:0}).x;
   const footprintById = new Map(pcb.footprints.map((footprint) => [footprint.id, footprint]));
   const isVisible = (layer?: string) => !layer || !hiddenLayers.has(layer);
   const toggleLayer = (layer: string) => setHiddenLayers((current) => { const next = new Set(current); if (next.has(layer)) next.delete(layer); else next.add(layer); return next; });
 
   return (
-    <article className="panel eda-viewer-panel">
-      <ViewerToolbar label={`PCB 2D · ${pcb.name}`} zoom={zoom} onZoom={setZoom}>
+    <article className={`panel eda-viewer-panel ${library ? "library-viewer" : ""}`}>
+      <ViewerToolbar label={library ? "封装库预览 · mm" : `PCB 2D · ${pcb.name}`} zoom={zoom} onZoom={setZoom}>
         <button type="button" aria-pressed={showLabels} onClick={() => setShowLabels(v => !v)}>位号 / 焊盘文字 {showLabels ? "开" : "关"}</button>
         {bundle.pcbs.length > 1 && <select aria-label="选择 PCB 文档" value={documentIndex} onChange={(event) => { setDocumentIndex(Number(event.target.value)); setSelectedNetId(null); }}>
           {bundle.pcbs.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}
         </select>}
       </ViewerToolbar>
+      {library && <div className="library-layers" aria-label="封装图层">{[...new Set(pcb.footprints.flatMap(f=>(f.graphics??[]).map(g=>g.layer)))].map(layer=><button type="button" key={layer} aria-pressed={isVisible(layer)} onClick={()=>toggleLayer(layer)}>{layer}</button>)}<span>焊盘 {pcb.pads.length} · 铜层红色 / 丝印白色 / 边界紫色 / 装配黄色</span></div>}
       <div className="viewer-body">
         <div className="viewer-canvas pcb-canvas">
           <svg role="img" aria-label={`${pcb.name} PCB 二维在线预览`} viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
@@ -337,19 +349,19 @@ export function PcbViewer({ bundle }: { bundle: CanonicalIrBundle }) {
               const position = numericPoint(pad.position); if (!position) return null;
               const p = project(position); const sizeX = Math.max(Number(pad.size?.x ?? 1.2) * scale, .3); const sizeY = Math.max(Number(pad.size?.y ?? 1.2) * scale, .3);
               const selected = !selectedNetId || pad.netId === selectedNetId;
-              return <g className={`pcb-pad ${selected ? "" : "dimmed"}`} key={pad.id}><title>{footprintById.get(pad.footprintId ?? "")?.reference}.{pad.number} · {pad.netName}</title><g transform={`rotate(${-Number(pad.rotation ?? 0)} ${p.x} ${p.y})`}><rect x={p.x - sizeX / 2} y={p.y - sizeY / 2} width={sizeX} height={sizeY} rx={/circle|oval/i.test(pad.shape) ? Math.min(sizeX, sizeY) / 2 : pad.shape === "roundrect" ? Math.min(sizeX,sizeY)*.2 : 0} />{pad.drill && <ellipse cx={p.x} cy={p.y} rx={Number(pad.drill.x)*scale/2} ry={Number(pad.drill.y)*scale/2} fill="#10241f" />}</g>{(showLabels || !!selectedNetId && selected) && <text x={p.x + sizeX / 2 + 2} y={p.y + 3}>{footprintById.get(pad.footprintId ?? "")?.reference}.{pad.number}</text>}</g>;
+              return <g className={`pcb-pad ${selected ? "" : "dimmed"}`} key={pad.id}><title>{footprintById.get(pad.footprintId ?? "")?.reference}.{pad.number} · {pad.netName}</title><g transform={`rotate(${-Number(pad.rotation ?? 0)} ${p.x} ${p.y})`}><rect x={p.x - sizeX / 2} y={p.y - sizeY / 2} width={sizeX} height={sizeY} rx={/circle|oval/i.test(pad.shape) ? Math.min(sizeX, sizeY) / 2 : pad.shape === "roundrect" ? Math.min(sizeX,sizeY)*.2 : 0} />{pad.drill && <ellipse cx={p.x} cy={p.y} rx={Number(pad.drill.x)*scale/2} ry={Number(pad.drill.y)*scale/2} fill="#10241f" />}</g>{(showLabels || !!selectedNetId && selected) && <text x={p.x + sizeX / 2 + 2} y={p.y + 3}>{library ? pad.number : `${footprintById.get(pad.footprintId ?? "")?.reference}.${pad.number}`}</text>}</g>;
             })}
             {pcb.vias.map((via) => { const position = numericPoint(via.position); if (!position) return null; const p = project(position); return <g className={`pcb-via ${selectedNetId && via.netId !== selectedNetId ? "dimmed" : ""}`} key={via.id}><circle cx={p.x} cy={p.y} r={Math.max(Number(via.size ?? 0.8) * scale / 2, .2)} /><circle cx={p.x} cy={p.y} r={Math.max(Number(via.drill ?? 0.35) * scale / 2, .1)} /></g>; })}
-            {pcb.footprints.map(footprint => {const position=numericPoint(footprint.position);if(!position)return null;const p=project(position);return <g className="pcb-source-graphics" key={footprint.id} transform={`translate(${p.x} ${p.y}) rotate(${-Number(footprint.rotation)})`}>{(footprint.graphics ?? []).filter(g=>isVisible(g.layer)&&/SilkS|Fab/.test(g.layer)).map(g=>outlineElement(g,v=>({x:v.x*scale,y:v.y*scale})))}</g>;})}
-            {showLabels && pcb.footprints.map(footprint => {const position=numericPoint(footprint.position);if(!position)return null;const p=project(position);return <text key={footprint.id} x={p.x} y={p.y-10} fill="#eee" fontSize="10" textAnchor="middle">{footprint.reference}</text>;})}
+            {pcb.footprints.map(footprint => {const position=numericPoint(footprint.position);if(!position)return null;const p=project(position);return <g className="pcb-source-graphics" key={footprint.id} transform={`translate(${p.x} ${p.y}) rotate(${-Number(footprint.rotation)})`}>{(footprint.graphics ?? []).filter(g=>isVisible(g.layer)&&/SilkS|Fab|CrtYd/.test(g.layer)).map(g=><g key={g.id} data-layer={g.layer}>{outlineElement(g,v=>({x:v.x*scale,y:v.y*scale}))}</g>)}</g>;})}
+            {showLabels && !library && pcb.footprints.map(footprint => {const position=numericPoint(footprint.position);if(!position)return null;const p=project(position);return <text key={footprint.id} x={p.x} y={p.y-10} fill="#eee" fontSize="10" textAnchor="middle">{footprint.reference}</text>;})}
           </svg>
         </div>
-        <aside className="viewer-inspector">
+        {!library && <aside className="viewer-inspector">
           <div className="inspector-title"><Layers3 size={15} /><strong>图层</strong><span>{pcb.layers.length}</span></div>
           {pcb.layers.slice(0, 32).map((layer) => <button type="button" className={hiddenLayers.has(layer.name) ? "muted-layer" : "active"} onClick={() => toggleLayer(layer.name)} key={layer.id}>{hiddenLayers.has(layer.name) ? <EyeOff size={12} /> : <Eye size={12} />}<span>{layer.name}</span><i style={{ background: layerColor(layer.name) }} /></button>)}
           <div className="inspector-title net-inspector-title"><Layers3 size={15} /><strong>高亮网络</strong></div>
           <select aria-label="高亮 PCB 网络" value={selectedNetId ?? ""} onChange={(event) => setSelectedNetId(event.target.value || null)}><option value="">全部网络</option>{bundle.nets.filter((net) => net.domain === "pcb_physical").map((net) => <option value={net.id} key={net.id}>{net.canonicalName}</option>)}</select>
-        </aside>
+        </aside>}
       </div>
       <div className="viewer-status"><span>{pcb.layers.filter((layer) => layer.copper).length} copper layers</span><span>{pcb.footprints.length} footprints</span><span>{pcb.pads.length} pads</span><span>{pcb.tracks.length} tracks</span><strong>{pcb.physicalDimensions ? `${pcb.physicalDimensions.width} × ${pcb.physicalDimensions.height} × ${pcb.physicalDimensions.thickness ?? "?"} mm` : "尺寸未解析"}</strong></div>
     </article>

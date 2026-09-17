@@ -24,6 +24,12 @@ export async function candidateFile(asset:ExtractedAsset|AssetRecord):Promise<In
   const size=chunks.reduce((n,c)=>n+c.length,0),bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
   if(await sha256(bytes)!==asset.fileHash)throw Error('FILE_HASH_MISMATCH');return {path:asset.fileName!,bytes};
  }
+ if(asset.kind==='model'&&!asset.official){
+  const checked=await json(await fetch('/api/design-assets/official',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify([{kind:asset.kind,name:asset.name}])}));
+  const official=checked.results?.[0];
+  if(official?.revision&&['match','found'].includes(official.status))return candidateFile({...asset,official});
+  throw Error(official?.message||'官方库没有可用模型，请补充工程引用的原始 3D 文件');
+ }
  if(asset.official?.revision&&['match','found'].includes(asset.official.status)){
   const r=await fetch('/api/design-assets/official?'+new URLSearchParams({kind:asset.kind,name:asset.name,revision:asset.official.revision}));if(!r.ok)throw Error('官方资产下载失败');
   return {path:asset.kind==='model'?asset.name.split('/').at(-1)!:asset.kind==='symbol'?'official.kicad_sym':'official.kicad_mod',bytes:await boundedBody(r.body,50*1024*1024)};

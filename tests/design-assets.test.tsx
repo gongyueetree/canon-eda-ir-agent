@@ -63,3 +63,36 @@ test('front and back footprint instances restore identical library pad geometry 
  const back=footprintFile(parse('(footprint "P" (layer "B.Cu") (at 50 40 90) (pad "1" smd roundrect (at 1 -2 60) (size 1 2) (layers "B.Cu" "B.Mask")) (fp_line (start 1 -2) (end 3 -4) (stroke (width .1) (type default)) (layer "B.SilkS")))'));
  assert.equal(await fingerprint('footprint',enc.encode(front)),await fingerprint('footprint',enc.encode(back)));
 });
+
+test('library preview fits symbol geometry without a sheet frame or network inspector',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const {SchematicViewer}=await import('../components/EdaViewers');
+ const bundle=await parseEdaProject(fixture());
+ const html=renderToStaticMarkup(<SchematicViewer bundle={bundle} library/>);
+ assert.ok(!html.includes('schematic-page-frame'));
+ assert.ok(!html.includes('网络导航'));
+ assert.match(html,/符号库预览/);
+ const {JSDOM}=await import('jsdom');const dom=new JSDOM(html);
+ const line=dom.window.document.querySelector('polyline');assert.ok(line);
+ const points=line.getAttribute('points')!.split(' ').map(v=>v.split(',').map(Number));
+ assert.ok(Math.max(...points.map(p=>p[0]))-Math.min(...points.map(p=>p[0]))>40,'symbol must not shrink to a page-sized dot');
+ dom.window.close();
+});
+
+test('0402 footprint preview keeps complete rotated pad extents inside the viewport',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');const {PcbViewer}=await import('../components/EdaViewers');
+ const source='(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal)) (footprint "C_0402" (layer "F.Cu") (at 0 0) (pad "1" smd roundrect (at -.48 0 45) (size .56 .62) (layers "F.Cu")) (pad "2" smd roundrect (at .48 0) (size .56 .62) (layers "F.Cu"))))';
+ const bundle=await parseEdaProject([{path:'preview.kicad_pcb',bytes:enc.encode(source)}]);
+ const html=renderToStaticMarkup(<PcbViewer bundle={bundle} library/>);
+ assert.ok(!html.includes('高亮网络'));assert.match(html,/封装库预览/);
+ const {JSDOM}=await import('jsdom');const dom=new JSDOM(html);
+ const pads=[...dom.window.document.querySelectorAll('.pcb-pad rect')];assert.equal(pads.length,2);
+ for(const p of pads){const x=Number(p.getAttribute('x')),y=Number(p.getAttribute('y')),w=Number(p.getAttribute('width')),h=Number(p.getAttribute('height'));assert.ok(x>0&&y>0&&x+w<1200&&y+h<720);assert.ok(w<120,'small footprint should not inflate pads to hundreds of pixels');}
+ dom.window.close();
+});
+
+test('missing local 3D reference resolves a pinned official model for preview',async()=>{
+ const {candidateFile}=await import('../lib/design-assets/client');const original=globalThis.fetch;const calls:string[]=[];
+ globalThis.fetch=async(input)=>{calls.push(String(input));return String(input).includes('?')?new Response('ISO-10303-21;\nEND-ISO-10303-21;'):Response.json({results:[{status:'found',revision:'a'.repeat(40)}]});};
+ try{const assets=await extractDesignAssets(await parseEdaProject(fixture()),fixture());const model=assets.find(a=>a.kind==='model')!;const file=await candidateFile({...model,file:undefined,fileHash:undefined,official:undefined});assert.match(new TextDecoder().decode(file.bytes),/^ISO-10303-21;/);assert.equal(calls.length,2);assert.ok(calls[1].includes('revision='+'a'.repeat(40)));}finally{globalThis.fetch=original;}
+});

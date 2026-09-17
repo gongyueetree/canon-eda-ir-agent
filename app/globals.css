@@ -545,3 +545,19 @@ td code { color: #718078; font-size: 8px; }
 .design-preview { min-width:0; border:1px solid #cbd8d0; padding:12px; border-radius:10px; overflow:hidden; }
 .design-preview h4 { overflow-wrap:anywhere; }
 @media(max-width:1000px){ .design-comparison { grid-template-columns:1fr; } }
+
+/* Library previews fit their card; project canvas minimum widths do not apply. */
+.design-preview .library-viewer .viewer-body { display:block; min-height:0; }
+.design-preview .library-viewer .viewer-canvas { overflow:hidden; }
+.design-preview .library-viewer .viewer-canvas svg { min-width:0; width:100%; height:360px; max-height:55vh; }
+.design-preview .library-viewer .viewer-toolbar { flex-wrap:wrap; gap:8px; }
+.design-preview .library-viewer .viewer-tools { flex-wrap:wrap; }
+.design-preview .library-viewer .viewer-status { display:none; }
+.design-preview .library-viewer .schematic-canvas { background:#fffff5; }
+.design-preview .library-viewer .pcb-pad > g > rect { fill:#d94d45; }
+.design-preview .library-viewer .pcb-source-graphics .pcb-outline { stroke:#e5e5df; }
+
+.library-layers { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; font-size:12px; }
+.library-layers button[aria-pressed="false"] { opacity:.5; }
+.design-preview .library-viewer [data-layer$="CrtYd"] .pcb-outline { stroke:#d46fe6; }
+.design-preview .library-viewer [data-layer$="Fab"] .pcb-outline { stroke:#d4ce65; }

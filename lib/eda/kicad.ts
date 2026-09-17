@@ -93,9 +93,9 @@ function transformPoint(
 }
 
 // Symbol libraries use Cartesian +Y up; schematic sheets use +Y down.
-function schematicPinPoint(x: string, y: string, ox: string, oy: string, rotation: string): [string,string] {
+function schematicPinPoint(x: string, y: string, ox: string, oy: string, rotation: string, mirror?: string): [string,string] {
   const [rx, ry] = transformPoint(x, y, "0", "0", rotation);
-  return [String(Number(ox)+Number(rx)), String(Number(oy)-Number(ry))];
+  return [String(Number(ox)+(mirror === "y" ? -1 : 1)*Number(rx)), String(Number(oy)-(mirror === "x" ? -1 : 1)*Number(ry))];
 }
 
 function pointKey(x: string, y: string): string {
@@ -344,12 +344,12 @@ function parseSchematic(
     sourceMap.push(ref);
     const definition = symbolDefinitions.get(libraryId);
     if (definition?.multiUnit) diagnostics.push(diagnostic("SCHEMATIC_MULTIUNIT_UNRESOLVED", `${reference} 的多单元/替代图形管脚尚未完整区分，不能批准连接。`, "warning", "connectivity", ref));
-    if (firstChild(symbolNode, "mirror")) diagnostics.push(diagnostic("SCHEMATIC_MIRROR_UNRESOLVED", `${reference} 存在尚未支持的镜像变换，连接不可用于自动发布。`, "warning", "connectivity", ref));
+
     const isPowerSymbol = reference.startsWith("#PWR") || libraryId.startsWith("power:");
     if (at) {
     const embedded = directChildren(firstChild(root, "lib_symbols") ?? root, "symbol").find(n => atom(n.items[1]) === libraryId);
     const mirror = childValue(symbolNode, "mirror");
-    const drawPoint = (x: string, y: string) => point(...schematicPinPoint(mirror === "y" ? String(-Number(x)) : x, mirror === "x" ? String(-Number(y)) : y, at[0], at[1], at[2]))!;
+    const drawPoint = (x: string, y: string) => point(...schematicPinPoint(x, y, at[0], at[1], at[2], mirror))!;
     for (const sub of embedded ? directChildren(embedded, "symbol") : []) {
       const suffix = (atom(sub.items[1]) ?? "").match(/_(\d+)_(\d+)$/);
       if (suffix && (Number(suffix[1]) !== 0 && Number(suffix[1]) !== unit || Number(suffix[2]) > 1)) continue;
@@ -370,7 +370,7 @@ function parseSchematic(
       if (at) {
         const powerPin = definition?.pins[0];
         const [x, y] = powerPin
-          ? schematicPinPoint(powerPin.x, powerPin.y, at[0], at[1], at[2])
+          ? schematicPinPoint(powerPin.x, powerPin.y, at[0], at[1], at[2], childValue(symbolNode,"mirror"))
           : [at[0], at[1]];
         const valueProperty=directChildren(symbolNode,"property").find(n=>atom(n.items[1])==="Value");
         const textAt=valueProperty && nodeAt(valueProperty);
@@ -438,7 +438,7 @@ function parseSchematic(
     }
     if (!at) continue;
     for (const pinDefinition of definition.pins) {
-      const [x, y] = schematicPinPoint(pinDefinition.x, pinDefinition.y, at[0], at[1], at[2]);
+      const [x, y] = schematicPinPoint(pinDefinition.x, pinDefinition.y, at[0], at[1], at[2], childValue(symbolNode,"mirror"));
       pinAnchors.push({
         id: stableId("pin", unitId, pinDefinition.number),
         partId,
@@ -485,7 +485,7 @@ function parseSchematic(
         const nativeId = nodeUuid(labelNode, `${nodeHead}:${index}`);
         const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: labelNode.span.line, column: labelNode.span.column });
         sourceMap.push(ref);
-        return [{ id: stableId("label", schematicId, nativeId), name, kind, rotation:at[2], size:childValue(firstChild(firstChild(labelNode,"effects") ?? labelNode,"font") ?? labelNode,"size") ?? "1.27", position: point(at[0], at[1])!, sourceRef: ref }];
+        return [{ id: stableId("label", schematicId, nativeId), name, kind, shape:childValue(labelNode,"shape"), rotation:at[2], size:childValue(firstChild(firstChild(labelNode,"effects") ?? labelNode,"font") ?? labelNode,"size") ?? "1.27", position: point(at[0], at[1])!, sourceRef: ref }];
       }),
     ),
     ...powerLabels,

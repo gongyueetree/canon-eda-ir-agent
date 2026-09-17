@@ -90,3 +90,20 @@ test('schematic preserves power geometry and paper; wheel, drag and reset operat
   assert.ok(svg.querySelector('g[transform="translate(0 0)"]'));assert.match(document.body.textContent!,/100%/);
  }finally{await act(async()=>root.unmount());dom.window.close();}
 });
+
+test('rotated power mirror uses sheet axes and hierarchical ports retain electrical shape',async()=>{
+ const source=`(kicad_sch (version 20250114) (lib_symbols (symbol "power:+3V3" (symbol "+3V3_0_1" (polyline (pts (xy -1 2) (xy 0 3) (xy 1 2)))))) (symbol (lib_id "power:+3V3") (at 50 50 90) (mirror x) (unit 1) (uuid "power") (property "Reference" "#PWR01") (property "Value" "+3V3")) (hierarchical_label "DC_OUT" (shape output) (at 80 50 0) (effects (font (size 1.016 1.016)))))`;
+ const bundle=await parseEdaProject([{path:'ports.kicad_sch',bytes:new TextEncoder().encode(source)}]);
+ const sch=bundle.schematics[0];
+ assert.deepEqual(sch.graphics?.[0].points.map(p=>[Number(p.x),Number(p.y)]),[[48,49],[47,50],[48,51]]);
+ assert.equal(sch.labels.find(l=>l.name==='DC_OUT')?.shape,'output');
+ const {hierarchicalPort}=await import('../lib/eda/port-geometry');
+ for(const angle of [0,90,180,270])for(const shape of ['input','output','bidirectional','tri_state','passive']){
+  const points=hierarchicalPort(shape,2,angle);assert.deepEqual(points[0],points.at(-1));
+  assert.ok(points.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
+ }
+ assert.ok(hierarchicalPort('input',2,180).every(p=>p.x<=1e-8));
+ const {renderToStaticMarkup}=await import('react-dom/server');const {SchematicViewer}=await import('../components/EdaViewers');
+ const html=renderToStaticMarkup(<SchematicViewer bundle={bundle}/>);
+ assert.match(html,/schematic-hierarchical-port/);assert.match(html,/data-shape="output"/);
+});

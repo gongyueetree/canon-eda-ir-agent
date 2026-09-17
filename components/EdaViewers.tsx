@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useMemo, useState } from "react";
 import type { CanonicalIrBundle, IrPoint, PartIr, PcbIr } from "../lib/eda/types";
 
+import { hierarchicalPort } from "../lib/eda/port-geometry";
 import { arcPoints } from "../lib/eda/view-geometry";
 import { AssemblyScene } from "./AssemblyScene";
 import { modelAssets,boardAssembly } from "../lib/models/assets";
@@ -212,7 +213,16 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
             {(schematic.texts ?? []).map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
             {showPinNumbers && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
             {schematic.junctions.map((junction) => { const p = geometry.project(numericPoint(junction.position)!); return <circle className="schematic-junction" cx={p.x} cy={p.y} r="4.5" key={junction.id} />; })}
-            {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const left=Number(label.rotation??0)===180;return <text key={label.id} className="schematic-source-text" x={p.x+(label.kind==="power"?0:left?-2:2)} y={p.y-2} textAnchor={label.kind==="power"?"middle":left?"end":"start"} style={{fontSize:Number(label.size??1.27)*scale,fill:label.kind==="power"?"#a83e54":"#325c9a"}}>{label.name}</text>;})}
+            {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const angle=((Number(label.rotation??0)%360)+360)%360;const left=angle===180;
+              if(label.kind==="hierarchical") {
+                const anchor=geometry.project(numericPoint(label.position)!);const size=Number(label.size??1.27)*scale;
+                const outline=hierarchicalPort(label.shape,size,angle);
+                const textAngle=angle===90?-90:angle===270?90:0;
+                const distance=size*1.4;
+                const tx=anchor.x+Math.cos(angle*Math.PI/180)*distance,ty=anchor.y-Math.sin(angle*Math.PI/180)*distance;
+                return <g key={label.id} className="schematic-hierarchical-port" data-shape={label.shape??"passive"}><polyline points={outline.map(q=>`${anchor.x+q.x},${anchor.y+q.y}`).join(" ")} fill="none" stroke="#88734a" strokeWidth={Math.max(.5,size*.08)}/><text className="schematic-source-text" x={tx} y={ty} transform={`rotate(${textAngle} ${tx} ${ty})`} textAnchor={left?"end":"start"} dominantBaseline="central" style={{fontSize:size,fill:"#88734a"}}>{label.name}</text></g>;
+              }
+              return <text key={label.id} className="schematic-source-text" x={p.x+(label.kind==="power"?0:left?-2:2)} y={p.y-2} textAnchor={label.kind==="power"?"middle":left?"end":"start"} style={{fontSize:Number(label.size??1.27)*scale,fill:label.kind==="power"?"#a83e54":"#325c9a"}}>{label.name}</text>;})}
             </g>
           </svg>
         </div>

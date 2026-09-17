@@ -147,6 +147,7 @@ export type SchematicIr = {
     id: string;
     name: string;
     kind: "local" | "global" | "hierarchical" | "power";
+    shape?: string;
     textPosition?: IrPoint;
     rotation?: string;
     size?: string;
@@ -272,9 +273,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.3.1";
+    agentVersion: "1.3.2";
     adapterId: string;
-    adapterVersion: "1.3.1";
+    adapterVersion: "1.3.2";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

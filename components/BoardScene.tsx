@@ -1,13 +1,17 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { PcbIr, IrPoint } from "../lib/eda/types";
+import type { PcbIr, IrPoint, InputAsset } from "../lib/eda/types";
 import { arcPoints, type XY } from "../lib/eda/view-geometry";
 
-export function BoardScene({ pcb }: { pcb: PcbIr }) {
+const EMPTY_ASSETS: InputAsset[] = [];
+export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { pcb: PcbIr; assets?: InputAsset[]; components?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const reset = useRef(() => {});
   const [error, setError] = useState("");
+  const [modelStatus,setModelStatus] = useState("");
+  const [missing,setMissing] = useState<string[]>([]);
   useEffect(() => {
+    const abort = new AbortController();
     let cancelled = false;
     let cleanup = () => {};
     async function draw() {
@@ -52,6 +56,14 @@ export function BoardScene({ pcb }: { pcb: PcbIr }) {
         const geometry=new THREE.ShapeGeometry(shape);resources.push(geometry);
         for(const side of ["F.Cu","B.Cu"]){if(!pad.layers.includes(side)&&!pad.layers.includes("*.Cu"))continue;const mesh=new THREE.Mesh(geometry,gold);mesh.position.set(p.x,p.y,side==="F.Cu"?thickness+.015:-.015);mesh.rotation.z=Number(pad.rotation??0)*Math.PI/180;group.add(mesh);}
       }
+      if(components){
+        const {loadFootprintModels}=await import('../lib/models/load-footprints');
+        const result=await loadFootprintModels(pcb,assets,abort.signal,text=>{if(!cancelled)setModelStatus(text);});
+        result.group.traverse(o=>{if(o instanceof THREE.Mesh){resources.push(o.geometry);resources.push(...(Array.isArray(o.material)?o.material:[o.material]));}});
+        if(cancelled){cleanup();return;}
+        group.add(result.group);setModelStatus(`器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.missing);
+      }
+      if(cancelled){cleanup();return;}
       const box=new THREE.Box3().setFromObject(group), center=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());group.position.sub(center);
       const distance=Math.max(size.x,size.y,1)*1.4;
       const camera=new THREE.PerspectiveCamera(45,1,.01,distance*20);camera.position.set(distance*.45,-distance*.7,distance);
@@ -63,7 +75,7 @@ export function BoardScene({ pcb }: { pcb: PcbIr }) {
       cleanup=()=>{resize.disconnect();renderer.setAnimationLoop(null);controls.dispose();resources.forEach(r=>r.dispose());renderer.dispose();renderer.domElement.remove();};
     }
     draw().catch(e=>{cleanup();if(!cancelled)setError(e instanceof Error?e.message:"3D 初始化失败；请检查浏览器 WebGL 支持。");});
-    return()=>{cancelled=true;cleanup();};
-  },[pcb]);
-  return <div style={{position:"relative"}}><button type="button" onClick={()=>reset.current()} style={{position:"absolute",top:12,right:12,zIndex:1}}>重置视角</button>{error && <p role="alert" style={{padding:24}}>{error}</p>}<div ref={host} aria-label="PCB 三维视图" style={{height:600,width:"100%",display:error?"none":"block"}}/></div>;
+    return()=>{cancelled=true;abort.abort();cleanup();};
+  },[pcb,assets,components]);
+  return <div style={{position:"relative"}}><button type="button" onClick={()=>reset.current()} style={{position:"absolute",top:12,right:12,zIndex:1}}>重置视角</button>{error && <p role="alert" style={{padding:24}}>{error}</p>}<p role="status">{modelStatus}</p>{missing.length>0&&<details><summary>{missing.length} 个模型未加载（查看原因）</summary><ul>{missing.map((m,i)=><li key={i}>{m}</li>)}</ul></details>}<div ref={host} aria-label="PCB 三维视图" style={{height:600,width:"100%",display:error?"none":"block"}}/></div>;
 }

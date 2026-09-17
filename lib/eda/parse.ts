@@ -285,9 +285,9 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     generatedAt: new Date().toISOString(),
     parser: {
       agent: "eda-canonical-ir-agent",
-      agentVersion: "1.3.2",
+      agentVersion: "1.4.0",
       adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? "altium-safe-intake" : "unknown",
-      adapterVersion: "1.3.2",
+      adapterVersion: "1.4.0",
       deterministic: true,
       llmUsedForParsing: false,
       roundTripReadiness: "read_only",

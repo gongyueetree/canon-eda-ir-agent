@@ -557,7 +557,7 @@ function parseSchematic(
 }
 
 type LegacySymbolPinDefinition = SymbolPinDefinition & { unit: number };
-type LegacySymbolDefinition = { libraryId: string; pins: LegacySymbolPinDefinition[] };
+type LegacySymbolDefinition = { libraryId: string; pins: LegacySymbolPinDefinition[]; drawings: string[] };
 
 function cleanNumber(value: number): string {
   if (Math.abs(value) < 1e-9) return "0";
@@ -580,7 +580,7 @@ function parseLegacySymbolDefinitions(inputs: InputAsset[]): Map<string, LegacyS
     for (const line of lines) {
       const definitionMatch = line.match(/^DEF\s+(\S+)\s+/);
       if (definitionMatch) {
-        current = { libraryId: definitionMatch[1], pins: [] };
+        current = { libraryId: definitionMatch[1], pins: [], drawings: [] };
         definitions.set(legacyLibraryKey(current.libraryId), current);
         continue;
       }
@@ -588,6 +588,7 @@ function parseLegacySymbolDefinitions(inputs: InputAsset[]): Map<string, LegacyS
         current = undefined;
         continue;
       }
+      if(current && /^[SPACX] /.test(line))current.drawings.push(line);
       if (!current || !line.startsWith("X ")) continue;
       const tokens = line.trim().split(/\s+/);
       if (tokens.length < 11) continue;
@@ -656,6 +657,8 @@ function parseLegacySchematic(
   const wires: SchematicIr["wires"] = [];
   const junctions: SchematicIr["junctions"] = [];
   const labels: SchematicIr["labels"] = [];
+  const graphics: NonNullable<SchematicIr["graphics"]> = [];
+  const texts: NonNullable<SchematicIr["texts"]> = [];
   const noConnects: SchematicIr["noConnects"] = [];
   const sourceMap: SourceRef[] = [fileRef];
   const missingDefinitions = new Set<string>();
@@ -707,15 +710,42 @@ function parseLegacySchematic(
         return [legacyToMillimeters(x), legacyToMillimeters(y)];
       };
 
+      const graphicUnit=stableId("symbol-unit",partsByReference.get(reference)?.id??stableId("part",schematicId,reference),unit,nativeId);
+      for(const line of definition?.drawings??[]){
+        const t=line.trim().split(/\s+/),v=t.map(Number);let xy:number[][]=[],u=0,convert=1;
+        if(t[0]==="P"){u=v[2];convert=v[3];xy=Array.from({length:v[1]},(_,i)=>[v[5+i*2],v[6+i*2]]);}
+        if(t[0]==="S"){u=v[5];convert=v[6];xy=[[v[1],v[2]],[v[3],v[2]],[v[3],v[4]],[v[1],v[4]],[v[1],v[2]]];}
+        if(t[0]==="C"||t[0]==="A"){
+          u=v[t[0]==="C"?4:6];convert=v[t[0]==="C"?5:7];
+          const a=t[0]==="C"?0:v[4]*Math.PI/1800;let sweep=t[0]==="C"?Math.PI*2:(v[5]-v[4])*Math.PI/1800;
+          if(t[0]==="A"){while(sweep<0)sweep+=2*Math.PI;while(sweep>2*Math.PI)sweep-=2*Math.PI;}
+          xy=Array.from({length:49},(_,i)=>[v[1]+v[3]*Math.cos(a+sweep*i/48),v[2]+v[3]*Math.sin(a+sweep*i/48)]);
+        }
+        if(t[0]==="X"){
+          u=v[9];convert=v[10];if(t[12]?.includes("N"))continue;
+          const directions:Record<string,number[]>={R:[1,0],L:[-1,0],U:[0,1],D:[0,-1]};const d=directions[t[6]]??[0,0];xy=[[v[3],v[4]],[v[3]+v[5]*d[0],v[4]+v[5]*d[1]]];
+        }
+        if((u!==0&&u!==unit)||convert>1||!xy.length)continue;
+        graphics.push({id:stableId("legacy-graphic",graphicUnit,graphics.length),symbolUnitId:graphicUnit,closed:t[0]==="S"||t[0]==="C",points:xy.map(([x,y])=>point(...transformLegacyPin({x:String(x),y:String(y)} as LegacySymbolPinDefinition))!)});
+      }
+      for(const field of block){
+        const m=field.match(/^F\s+([01])\s+"((?:\\.|[^"\\])*)"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\S+)\s+(\S+)/);
+        if(!m||m[7]!=="0000"||isPowerSymbol)continue;
+        texts.push({id:stableId("legacy-text",graphicUnit,m[1]),symbolUnitId:graphicUnit,kind:m[1]==="0"?"Reference":"Value",text:m[2],position:point(legacyToMillimeters(m[4]),legacyToMillimeters(m[5]))!,size:legacyToMillimeters(m[6]),rotation:m[3]==="V"?"90":"0",align:m[8]==="L"?"start":m[8]==="R"?"end":"middle"});
+      }
       if (isPowerSymbol) {
         const powerPin = definition?.pins.find((pinDefinition) => pinDefinition.unit === 0 || pinDefinition.unit === unit);
         const [x, y] = powerPin
           ? transformLegacyPin(powerPin)
           : [legacyToMillimeters(originX), legacyToMillimeters(originY)];
+        const valueField=block.find(l=>/^F\s+1\s/.test(l))?.match(/^F\s+1\s+"(?:\\.|[^"\\])*"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)/);
         labels.push({
           id: stableId("label", schematicId, nativeId, "power"),
           name: value || libraryId.replace(/^.*power[:_]/i, "") || reference,
           kind: "power",
+          textPosition:valueField?point(legacyToMillimeters(valueField[2]),legacyToMillimeters(valueField[3])):undefined,
+          size:valueField?legacyToMillimeters(valueField[4]):undefined,
+          rotation:valueField?.[1]==="V"?"90":"0",
           position: point(x, y)!,
           sourceRef: ref,
         });
@@ -816,6 +846,9 @@ function parseLegacySchematic(
         id: stableId("label", schematicId, nativeId),
         name: lines[index + 1].trim(),
         kind,
+        rotation: String([180,90,0,270][Number(line.trim().split(/\s+/)[4])]??0),
+        size:legacyToMillimeters(line.trim().split(/\s+/)[5]??50),
+        shape:({Input:"input",Output:"output",BiDi:"bidirectional",3:"tri_state",Passive:"passive"} as Record<string,string>)[line.trim().split(/\s+/)[6]]??"passive",
         position: point(legacyToMillimeters(labelMatch[2]), legacyToMillimeters(labelMatch[3]))!,
         sourceRef: ref,
       });
@@ -848,6 +881,7 @@ function parseLegacySchematic(
     id: schematicId,
     documentId,
     name: title || withoutExtension(asset.fileName),
+    graphics, texts,
     rootSheetId,
     sheets: [{ id: rootSheetId, name: title || withoutExtension(asset.fileName), instancePath: "/" }],
     symbolInstanceIds: Array.from(partsByReference.values()).flatMap((part) => part.symbolUnits.map((unitItem) => unitItem.id)),
@@ -1213,6 +1247,11 @@ function parsePcb(
       reference: properties.Reference ?? `?${index + 1}`,
       value: properties.Value ?? "",
       libraryIdentifier,
+      models: directChildren(footprintNode,"model").map(model=>{
+        const xyz=(key:string, fallback:number)=>{const parent=firstChild(model,key);const n=parent && (firstChild(parent,"xyz")??parent);return [1,2,3].map(i=>Number(atom(n?.items[i])??fallback));};
+        const offset=xyz(firstChild(model,"offset")?"offset":"at",0).map(v=>firstChild(model,"offset")?v:v*25.4);
+        return {path:atom(model.items[1])??"",offset,scale:xyz("scale",1),rotation:xyz("rotate",0),hidden:!!firstChild(model,"hide")||model.items.some(n=>atom(n)==="hide")};
+      }),
       graphics: ([['fp_line','line'],['fp_arc','arc'],['fp_circle','circle'],['fp_rect','rectangle']] as const).flatMap(([nodeHead,kind]) => directChildren(footprintNode,nodeHead).map((node,i)=>({id:stableId("fp-graphic",id,nodeHead,i),layer:childValue(node,"layer")??"",kind,geometry:outlineGeometry(node,kind)}))),
       position: at ? point(at[0], at[1]) : undefined,
       rotation: at?.[2] ?? "0",

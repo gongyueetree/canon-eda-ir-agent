@@ -15,7 +15,7 @@ import {
 import { useEffect, useRef, useMemo, useState } from "react";
 import type { CanonicalIrBundle, IrPoint, PartIr, PcbIr } from "../lib/eda/types";
 
-import { hierarchicalPort } from "../lib/eda/port-geometry";
+import { hierarchicalPort, globalPort } from "../lib/eda/port-geometry";
 import { arcPoints } from "../lib/eda/view-geometry";
 import { AssemblyScene } from "./AssemblyScene";
 import { modelAssets,boardAssembly } from "../lib/models/assets";
@@ -214,6 +214,12 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
             {showPinNumbers && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
             {schematic.junctions.map((junction) => { const p = geometry.project(numericPoint(junction.position)!); return <circle className="schematic-junction" cx={p.x} cy={p.y} r="4.5" key={junction.id} />; })}
             {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const angle=((Number(label.rotation??0)%360)+360)%360;const left=angle===180;
+              if(label.kind==="global") {
+                const anchor=geometry.project(numericPoint(label.position)!);const size=Number(label.size??1.27)*scale;
+                const port=globalPort(label.shape,size,angle,label.name.length),r=angle*Math.PI/180;
+                const tx=anchor.x+Math.cos(r)*port.textOffset,ty=anchor.y-Math.sin(r)*port.textOffset;
+                return <g key={label.id} className="schematic-global-port"><polygon points={port.points.map(q=>`${anchor.x+q.x},${anchor.y+q.y}`).join(" ")} fill="#f2f4f0" stroke="#a83e54" strokeWidth={Math.max(.5,size*.08)}/><text x={tx} y={ty} textAnchor="middle" dominantBaseline="central" transform={`rotate(${angle===90||angle===270?-90:0} ${tx} ${ty})`} style={{fontSize:size,fill:"#a83e54"}}>{label.name}</text></g>;
+              }
               if(label.kind==="hierarchical") {
                 const anchor=geometry.project(numericPoint(label.position)!);const size=Number(label.size??1.27)*scale;
                 const outline=hierarchicalPort(label.shape,size,angle);
@@ -353,7 +359,7 @@ export function Board3DViewer({ bundle,assets=[] }: { bundle: CanonicalIrBundle;
   if(!pcb)return <EmptyViewer kind="3D PCB" format={bundle.project.sourceFormat}/>;
   const models=modelAssets(assets),assembly=boardAssembly(pcb,models);
   const selected=choice==="auto"?assembly:models.find(a=>a.path===choice);
-  return <article className="panel board-3d-panel"><div className="viewer-toolbar"><strong>PCB 3D · {pcb.name}</strong><select aria-label="选择 3D PCB 文档" value={index} onChange={e=>{setIndex(Number(e.target.value));setChoice("auto");}}>{bundle.pcbs.map((p,i)=><option key={p.id} value={i}>{p.name}</option>)}</select><select aria-label="选择实体模型" value={choice} onChange={e=>setChoice(e.target.value)}><option value="auto">{assembly?"工程装配实体（自动）":"IR 板体（没有同名装配模型）"}</option><option value="ir">仅 IR 板体 / 焊盘</option>{models.map(a=><option key={a.path} value={a.path}>模型文件：{a.path}</option>)}</select></div>{selected?<AssemblyScene key={selected.path} asset={selected}/>:<BoardScene key={pcb.id} pcb={pcb}/>}<div className="viewer-status">{selected?"显示源文件中的实体与颜色；装配模型可能与当前 PCB 版本不同，请核对导出时间。":"请在工程 ZIP 中包含同名 WRL/STEP 装配模型。已保存的 JSON 不含模型二进制，需要重新导入源工程。"}</div></article>;
+  return <article className="panel board-3d-panel"><div className="viewer-toolbar"><strong>PCB 3D · {pcb.name}</strong><select aria-label="选择 3D PCB 文档" value={index} onChange={e=>{setIndex(Number(e.target.value));setChoice("auto");}}>{bundle.pcbs.map((p,i)=><option key={p.id} value={i}>{p.name}</option>)}</select><select aria-label="选择实体模型" value={choice} onChange={e=>setChoice(e.target.value)}><option value="auto">{assembly?"工程装配实体（自动）":"PCB + 器件模型（自动）"}</option><option value="ir">仅 IR 板体 / 焊盘</option>{models.map(a=><option key={a.path} value={a.path}>模型文件：{a.path}</option>)}</select></div>{selected?<AssemblyScene key={selected.path} asset={selected}/>:<BoardScene key={`${pcb.id}-${choice}`} pcb={pcb} assets={assets} components={choice!=="ir"}/>}<div className="viewer-status">{selected?"显示源文件中的实体与颜色；装配模型可能与当前 PCB 版本不同，请核对导出时间。":"自动加载工程内模型、PCB 嵌入模型及 KiCad 官方库引用；缺失的自定义模型会列出原因。已保存的 JSON 需重新导入源工程以恢复模型数据。"}</div></article>;
 }
 
 type BomRow = {

@@ -22,6 +22,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "fflate": "^0.8.3",
+    "fzstd": "^0.1.1",
     "lucide-react": "^1.25.0",
     "next": "16.2.6",
     "occt-import-js": "^0.0.23",

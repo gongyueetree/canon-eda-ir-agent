@@ -220,3 +220,22 @@ Iceasy 的固定出口代理配置沿用 bom2buy 的表单和 `X-Proxy-Token`/`X
 STEP 转换在 Web Worker 中运行，使用 [occt-import-js](https://github.com/kovacsv/occt-import-js)（LGPL-2.1）和 Open CASCADE。安装依赖时复制 JS/WASM 与许可证到 `/occt/`；源代码及构建说明见上述项目，可替换对应独立库文件。Three.js 使用其 MIT 许可的 VRMLLoader。
 
 使用 `npm run verify:project -- /path/to/Openscope_RP2040.zip` 可本地复现源工程与装配模型检查；命令不会把工程上传到外部服务。
+
+### Footprint 3D models and older schematics
+
+The automatic PCB viewer now places per-footprint STEP/WRL models when there is no
+same-name board assembly. It preserves model offsets, rotations, scales and board
+side. Model sources are uploaded project files, KiCad embedded Base64/Zstandard
+files, and official KiCad library paths (`KICAD*_3DMODEL_DIR` / `KISYS3DMOD`).
+The public `/api/models/kicad` endpoint fetches only allowlisted KiCad GitLab paths,
+with time/size limits and caching. Third-party and machine-local paths need their
+actual model files in the upload; failures and missing references are listed in
+the viewer, with no substitute models invented. Binary model data is not included
+in saved IR; reimport the original archive after opening an older saved project.
+
+Schematic previews support global-label outlines and legacy `.lib` cached symbol
+bodies (polyline, rectangle, circle, arc and pin strokes), plus visible `.sch` fields.
+Reimport with adapter 1.4.0 to populate these fields in older projects.
+
+Local verification without publishing engineering files:
+`node --import tsx scripts/check-user-projects.ts /path/to/project.zip`

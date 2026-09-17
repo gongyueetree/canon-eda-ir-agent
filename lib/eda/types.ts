@@ -202,6 +202,7 @@ export type PcbIr = {
     reference: string;
     value: string;
     libraryIdentifier: string;
+    models?: Array<{ path: string; offset: number[]; scale: number[]; rotation: number[]; hidden: boolean }>;
     graphics?: Array<{ id: string; layer: string; kind: "line" | "arc" | "circle" | "rectangle"; geometry: Record<string, unknown> }>;
     position?: IrPoint;
     rotation: string;
@@ -273,9 +274,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.3.2";
+    agentVersion: "1.4.0";
     adapterId: string;
-    adapterVersion: "1.3.2";
+    adapterVersion: "1.4.0";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

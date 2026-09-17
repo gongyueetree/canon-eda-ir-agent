@@ -107,3 +107,33 @@ test('rotated power mirror uses sheet axes and hierarchical ports retain electri
  const html=renderToStaticMarkup(<SchematicViewer bundle={bundle}/>);
  assert.match(html,/schematic-hierarchical-port/);assert.match(html,/data-shape="output"/);
 });
+
+test('global labels render enclosed ports instead of plain labels',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');const {SchematicViewer}=await import('../components/EdaViewers');
+ const bundle=await parseEdaProject([{path:'global.kicad_sch',bytes:new TextEncoder().encode('(kicad_sch (version 20250114) (global_label "USB_DP" (shape bidirectional) (at 50 50 180)))')}]);
+ assert.match(renderToStaticMarkup(<SchematicViewer bundle={bundle}/>),/schematic-global-port/);
+});
+
+test('embedded Zstd raw frame is extracted without confusing footprint declarations',async()=>{
+ const {embeddedModels}=await import('../lib/models/footprints');
+ const raw=new TextEncoder().encode('ISO-10303-21;');const size=raw.length;
+ const frame=Uint8Array.from([0x28,0xb5,0x2f,0xfd,0x20,size,(size<<3)|1,0,0,...raw]);
+ const b64=Buffer.from(frame).toString('base64');
+ const bytes=new TextEncoder().encode(`(embedded_files (file (name "wrong.step") (type other) (checksum "x"))) (embedded_files (file (name "right.step") (type other) (data |${b64}|\n)))`);
+ const assets=embeddedModels({path:'board.kicad_pcb',bytes});assert.equal(assets.length,1);assert.equal(assets[0].path,'kicad-embed://right.step');assert.deepEqual(assets[0].bytes,raw);
+});
+
+test('model placement applies native offset, scale and bottom-side flip',async()=>{
+ const {Group,Vector3}=await import('three');const {placeFootprintModel}=await import('../lib/models/load-footprints');
+ const fp={reference:'U1',position:{x:'10',y:'20'},rotation:'90',side:'back'} as import('../lib/eda/types').PcbIr['footprints'][number];
+ const model=new Group();const placed=placeFootprintModel(model,fp,{path:'x.step',offset:[1,2,3],scale:[2,2,2],rotation:[0,0,0],hidden:false},1.6);placed.updateMatrixWorld(true);
+ const p=model.localToWorld(new Vector3(0,0,0));assert.ok(p.distanceTo(new Vector3(12,-19,-3))<1e-6);
+});
+
+test('legacy cache-library resistor is rendered from its body and visible source fields',async()=>{
+ const lib='EESchema-LIBRARY Version 2.4\nDEF Device_R R 0 0 N Y 1 F N\nDRAW\nS -40 100 40 -100 0 1 10 N\nX ~ 1 0 150 50 D 50 50 1 1 P\nX ~ 2 0 -150 50 U 50 50 1 1 P\nENDDRAW\nENDDEF\n#End Library';
+ const sch='EESchema Schematic File Version 4\n$Descr A4 11693 8268\n$EndDescr\n$Comp\nL Device:R R1\nU 1 1 abc\nP 2000 2000\nF 0 "R1" H 2100 2050 50 0000 L CNN\nF 1 "10k" H 2100 1950 50 0000 L CNN\n\t1 2000 2000\n\t1 0 0 -1\n$EndComp\n$EndSCHEMATC';
+ const b=await parseEdaProject([{path:'test.sch',bytes:new TextEncoder().encode(sch)},{path:'test-cache.lib',bytes:new TextEncoder().encode(lib)}]);
+ assert.equal(b.schematics[0].graphics?.length,3);assert.equal(b.schematics[0].texts?.length,2);
+ assert.equal(b.schematics[0].graphics?.[0].points[0].x,'49.784');
+});

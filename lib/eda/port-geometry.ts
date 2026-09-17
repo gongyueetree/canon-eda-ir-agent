@@ -14,3 +14,12 @@ export function hierarchicalPort(shape: string | undefined, size: number, rotati
     y:(x*Math.sin(angle)+y*Math.cos(angle))*size/2,
   }));
 }
+
+export function globalPort(shape:string|undefined,size:number,rotation:number,textLength:number){
+ const h=size*.7,w=Math.max(size*2,textLength*size*.65+size*1.8);
+ const input=shape==='input'||shape==='bidirectional'||shape==='tri_state';
+ const output=shape==='output'||shape==='bidirectional'||shape==='tri_state';
+ const outline=[[0,0],[input?h:0,-h],[w-(output?h:0),-h],[w,0],[w-(output?h:0),h],[input?h:0,h],[0,0]];
+ const r=-rotation*Math.PI/180;
+ return {points:outline.map(([x,y])=>({x:x*Math.cos(r)-y*Math.sin(r),y:x*Math.sin(r)+y*Math.cos(r)})),textOffset:w/2};
+}

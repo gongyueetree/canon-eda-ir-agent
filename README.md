@@ -241,3 +241,9 @@ Reimport with adapter 1.4.0 to populate these fields in older projects.
 
 Local verification without publishing engineering files:
 `node --import tsx scripts/check-user-projects.ts /path/to/project.zip`
+
+### 器件设计资产审核库
+
+结果页新增 **器件设计资产**：按厂商 + 明确 MPN 提取 KiCad 符号/封装和随附/嵌入模型，逐项核对 KiCad 官方库，同内容合并来源，不同内容并列预览，由编辑确认入库。支持多工程 ZIP 与 `npm run assets:batch`；数据库沿用现有工作区权限，候选不会自动发布。
+
+使用步骤、格式边界、存储结构和批处理命令见 [设计资产说明](docs/design-assets.md)。数据库迁移：[0003_design_assets.sql](migrations/0003_design_assets.sql)。

@@ -41,9 +41,10 @@ import { parseEdaProject } from "../lib/eda/parse";
 import { prepareAllegroInputs } from "../lib/eda/allegro-client";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
 import { Board3DViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
+import { DesignAssetWorkbench } from "./DesignAssetWorkbench";
 import { KeepAlivePanel } from "./KeepAlivePanel";
 
-type ResultTab = "knowledge" | "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
+type ResultTab = "design-assets" | "knowledge" | "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
 type AppView = "workspace" | "history" | "adapters";
 type SavedProject = {
   id: string;
@@ -481,6 +482,7 @@ export default function EdaWorkbench() {
         { id: "pcb", label: "PCB 2D", count: bundle.pcbs.length },
         { id: "3d", label: "3D", count: bundle.pcbs.length },
         { id: "parts", label: "BOM", count: bundle.parts.length },
+        { id: "design-assets", label: "器件设计资产" },
         { id: "nets", label: "Netlist", count: bundle.nets.length },
         { id: "diagnostics", label: "诊断", count: bundle.diagnostics.length },
         { id: "json", label: "IR JSON" },
@@ -706,6 +708,7 @@ export default function EdaWorkbench() {
                   </div>
                 )}
 
+                <KeepAlivePanel key={"assets-"+bundle.bundleId} active={activeTab === "design-assets"}><DesignAssetWorkbench bundle={bundle} assets={sourceAssets} mappings={bomMappings} active={activeTab === "design-assets"}/></KeepAlivePanel>
                 <KeepAlivePanel key={bundle.bundleId} active={activeTab === "3d"}><Board3DViewer bundle={bundle} assets={sourceAssets} active={activeTab === "3d"} /></KeepAlivePanel>
 
                 <div hidden={activeTab !== "parts"}><BomWorkbench key={bundle.bundleId} bundle={bundle} mappings={bomMappings} onMapping={(id,m)=>{setBomMappings(previous=>({...previous,[id]:m}));setSaveState("idle");}} /></div>

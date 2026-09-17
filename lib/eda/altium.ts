@@ -39,10 +39,25 @@ export function parseAltium(inputs: InputAsset[], inventory: SourceAsset[]): Kic
     if (!input) continue;
     const ref = sourceRef(asset.id, asset.relativePath);
     output.sourceMap.push(ref);
+    if (asset.extension === ".bomdoc") {
+      output.opaqueNodes.push({ recordType: "Altium.BomDoc", sourcePath: asset.relativePath, payloadHash: asset.sha256 });
+      output.recognized += 1; output.opaque += 1;
+      output.diagnostics.push(diagnostic("ALTIUM_BOMDOC_STRUCTURE_ONLY", `${asset.relativePath} 为 AD ActiveBOM，原文件已保留；尚未解释其中的采购数据，请附上导出的 BOM CSV。`, "warning", "unsupported", ref, "preserved"));
+      continue;
+    }
     if (asset.extension === ".prjpcb" || asset.extension === ".dsnwrk") {
       const metadata = parseProjectText(decodeUtf8(input.bytes));
       output.projectName ??= withoutExtension(asset.fileName);
       output.settings = { ...output.settings, ...metadata };
+      for (const [section, value] of Object.entries(metadata)) {
+        if (!/^Document\d+$/i.test(section) || !value || typeof value !== "object") continue;
+        const path = Object.entries(value).find(([key]) => /^DocumentPath$/i.test(key))?.[1];
+        if (typeof path !== "string" || !/\.(schdoc|pcbdoc)$/i.test(path)) continue;
+        const normalized = path.replace(/\\/g, "/");
+        const directory = asset.relativePath.split("/").slice(0, -1).join("/");
+        const matches = inputs.filter(i => i.path.toLowerCase() === `${directory ? directory + "/" : ""}${normalized}`.toLowerCase() || i.path.toLowerCase() === normalized.toLowerCase());
+        if (!matches.length) output.diagnostics.push(diagnostic("PROJECT_DOCUMENT_MISSING", `${asset.relativePath} 引用的 ${path} 未上传，请提供完整工程 ZIP。`, "error", "structure", ref));
+      }
       output.recognized += Object.keys(metadata).length;
       output.normalized += Object.keys(metadata).length;
       continue;
@@ -123,7 +138,7 @@ export function parseAltium(inputs: InputAsset[], inventory: SourceAsset[]): Kic
     }
   }
   output.sourceToolVersion = "Altium (version unresolved)";
-  if (!output.normalized) {
+  if (!output.normalized && !output.recognized) {
     output.diagnostics.push(diagnostic("UNSUPPORTED_FORMAT", "Altium 专有 SchDoc/PcbDoc 当前为结构级安全摄取；完整 Record Adapter 已在能力矩阵中标记为后续阶段。", "warning", "unsupported", output.sourceMap[0], "preserved"));
   }
   output.libraries = output.opaqueNodes.filter((node) => /lib/i.test(node.sourcePath)).map((node) => ({ id: stableId("library", node.sourcePath), name: node.sourcePath, type: "altium_container", resolutionStatus: "opaque_preserved" }));

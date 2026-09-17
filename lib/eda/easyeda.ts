@@ -475,8 +475,13 @@ function parseStandardPcb(
       continue;
     }
     if (["COPPERAREA", "SOLIDREGION"].includes(record.prefix)) {
-      const layer = record.fields[2] ?? record.fields[1] ?? "";
-      const netName = record.fields[3] ?? "";
+      const solid = record.prefix === "SOLIDREGION";
+      const layer = record.fields[solid ? 1 : 2] ?? "";
+      let netName = record.fields[solid ? 2 : 3] ?? "";
+      if (/^\s*[Mm]\s*[-+\d.]+[\s,]+[-+\d.]+.*[LlHhVvCcQqAaZz]/.test(netName)) {
+        output.diagnostics.push(diagnostic("EASYEDA_INVALID_NET_FIELD", `${record.prefix} 的网络字段含 SVG 路径，已拒绝作为网络名；请检查导出版本。`, "error", "mapping", ref, "preserved"));
+        netName = "";
+      }
       if (netName) explicitNetNames.add(netName);
       zones.push({
         id: stableId("zone", pcbId, nativeId),
@@ -612,7 +617,15 @@ export function parseEasyEda(inputs: InputAsset[], inventory: SourceAsset[]): Ki
     for (const document of standardDocuments(rootObject, asset, ref)) {
       const docType = sourceDocType(document.object);
       if (docType === "3" || docType === "4" || docType === "14") pcbDocuments.push(document);
-      else schematicDocuments.push(document);
+      else if (["1", "2"].includes(docType)) schematicDocuments.push(document);
+      else {
+        const prefixes = shapesOf(document.object).map(s => s.split("~", 1)[0]);
+        const pcbEvidence = prefixes.some(p => ["TRACK", "PAD", "VIA", "COPPERAREA", "SOLIDREGION"].includes(p));
+        const schEvidence = prefixes.some(p => ["WIRE", "W", "N", "F"].includes(p));
+        if (pcbEvidence && !schEvidence) pcbDocuments.push(document);
+        else if (schEvidence && !pcbEvidence) schematicDocuments.push(document);
+        else output.diagnostics.push(diagnostic("FORMAT_AMBIGUOUS", `无法确定 ${asset.relativePath} 的文档类型：docType=${docType || "缺失"}，records=${[...new Set(prefixes)].join(",")}；未猜测为原理图。`, "error", "format", ref, "preserved"));
+      }
     }
   }
 

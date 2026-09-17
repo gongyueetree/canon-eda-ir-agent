@@ -2,7 +2,7 @@ import type { InputAsset, ParseDiagnostic, SourceAsset, SourceFormat } from "./t
 import { basename, decodeUtf8, diagnostic, extensionOf, sha256, sourceRef, stableId } from "./util";
 
 const KICAD_EXTENSIONS = new Set([".kicad_pro", ".kicad_sch", ".kicad_pcb", ".kicad_sym", ".kicad_mod", ".kicad_dru", ".pro", ".sch", ".brd"]);
-const ALTIUM_EXTENSIONS = new Set([".prjpcb", ".schdoc", ".pcbdoc", ".schlib", ".pcblib", ".intlib", ".outjob", ".dsnwrk"]);
+const ALTIUM_EXTENSIONS = new Set([".prjpcb", ".schdoc", ".pcbdoc", ".schlib", ".pcblib", ".intlib", ".outjob", ".dsnwrk", ".bomdoc"]);
 
 function extensionFormat(extension: string): SourceFormat {
   if (KICAD_EXTENSIONS.has(extension)) return "kicad";

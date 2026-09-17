@@ -41,17 +41,18 @@ export class SExpressionError extends Error {
   }
 }
 
-function tokenize(source: string, maxTokens: number): Token[] {
-  const tokens: Token[] = [];
+function* tokenize(source: string, maxTokens: number): Generator<Token> {
+  let count = 0;
   let index = 0;
   let line = 1;
   let column = 1;
 
   const push = (token: Token) => {
-    tokens.push(token);
-    if (tokens.length > maxTokens) {
+    count += 1;
+    if (count > maxTokens) {
       throw new SExpressionError(`Token limit ${maxTokens} exceeded`, line, column);
     }
+    return token;
   };
 
   const advance = (character: string) => {
@@ -80,7 +81,7 @@ function tokenize(source: string, maxTokens: number): Token[] {
     const tokenColumn = column;
     if (character === "(" || character === ")") {
       advance(character);
-      push({
+      yield push({
         kind: character === "(" ? "open" : "close",
         value: character,
         quoted: false,
@@ -126,7 +127,7 @@ function tokenize(source: string, maxTokens: number): Token[] {
         advance(current);
       }
       if (!closed) throw new SExpressionError("Unterminated quoted string", tokenLine, tokenColumn);
-      push({
+      yield push({
         kind: "atom",
         value,
         quoted: true,
@@ -143,7 +144,7 @@ function tokenize(source: string, maxTokens: number): Token[] {
       value += source[index];
       advance(source[index]);
     }
-    push({
+    yield push({
       kind: "atom",
       value,
       quoted: false,
@@ -153,7 +154,7 @@ function tokenize(source: string, maxTokens: number): Token[] {
       column: tokenColumn,
     });
   }
-  return tokens;
+
 }
 
 export function parseSExpression(

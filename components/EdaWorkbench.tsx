@@ -526,7 +526,7 @@ export default function EdaWorkbench() {
         </div>
         <div className="sidebar-footer">
           <div className={`db-state ${dbConfigured ? "online" : ""}`}><Database size={15} /><span>{dbConfigured ? "PostgreSQL 已连接" : "本地只读模式"}</span></div>
-          <small>Parser 1.0.0-mvp · IR 1.0.0</small>
+          <small>Parser {bundle?.parser.adapterVersion ?? "1.5.1"} · IR 1.0.0</small>
         </div>
       </aside>
 
@@ -632,7 +632,7 @@ export default function EdaWorkbench() {
                       <article className="panel pipeline-panel">
                         <div className="panel-title"><div><Waypoints size={18} /><strong>证据管线</strong></div><span>Parser replay ready</span></div>
                         <div className="pipeline-visual">
-                          {["Raw source", "Source model", "Canonical IR", bundle.summary.errors > 0 ? "Bundle with errors" : bundle.fidelity.overallStatus === "structure_only" ? "Structure-only bundle" : "Validated bundle"].map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong>{index < 3 && <ChevronRight size={15} />}</div>)}
+                          {["Raw source", "Source model", "Canonical IR", bundle.summary.errors > 0 ? "部分失败：查看诊断" : bundle.fidelity.overallStatus === "structure_only" ? "Structure-only bundle" : bundle.fidelity.overallStatus === "partial" ? "部分解析：查看缺口" : "Validated bundle"].map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong>{index < 3 && <ChevronRight size={15} />}</div>)}
                         </div>
                         <div className="safety-card"><ShieldCheck size={21} /><div><strong>解析边界已执行</strong><p>不修改源文件 · 不执行宏/插件 · Unknown Record 原样计入 Fidelity</p></div></div>
                       </article>
@@ -649,7 +649,7 @@ export default function EdaWorkbench() {
                 {activeTab === "inventory" && (
                   <article className="panel table-panel">
                     <div className="panel-title"><div><FolderOpen size={18} /><strong>Source Asset Inventory</strong></div><span>SHA-256 内容寻址</span></div>
-                    <div className="data-table"><table><thead><tr><th>文件</th><th>角色</th><th>检测格式</th><th>大小</th><th>SHA-256</th><th>安全状态</th></tr></thead><tbody>{bundle.inventory.map((asset) => <tr key={asset.id}><td><FileCode2 size={15} /><strong>{asset.relativePath}</strong></td><td>{asset.entryRole}</td><td>{formatName(asset.detectedFormat)}</td><td>{formatBytes(asset.sizeBytes)}</td><td><code>{asset.sha256.slice(0, 12)}…</code></td><td><span className="accepted"><Check size={12} /> accepted</span></td></tr>)}</tbody></table></div>
+                    <div className="data-table"><table><thead><tr><th>文件</th><th>角色</th><th>检测格式</th><th>大小</th><th>SHA-256</th><th>安全状态 / IR</th></tr></thead><tbody>{bundle.inventory.map((asset) => <tr key={asset.id}><td><FileCode2 size={15} /><strong>{asset.relativePath}</strong></td><td>{asset.entryRole}</td><td>{formatName(asset.detectedFormat)}</td><td>{formatBytes(asset.sizeBytes)}</td><td><code>{asset.sha256.slice(0, 12)}…</code></td><td><span className="accepted"><Check size={12} /> accepted</span>{asset.irParticipation === "excluded" && <small>未参与 IR</small>}</td></tr>)}</tbody></table></div>
                   </article>
                 )}
 

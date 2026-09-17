@@ -7,9 +7,19 @@ import type { CanonicalIrBundle, InputAsset, NetIr, ParseDiagnostic, PartIr, Sou
 import { basename, diagnostic, stableId, withoutExtension } from "./util";
 import { validateReferentialIntegrity } from "./validate";
 
-function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["pcbs"]): CanonicalIrBundle["crossDocumentLinks"] {
+export function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["pcbs"]): CanonicalIrBundle["crossDocumentLinks"] {
   const links: CanonicalIrBundle["crossDocumentLinks"] = [];
-  const footprintByReference = new Map(pcbs.flatMap((pcb) => pcb.footprints.map((footprint) => [footprint.reference, footprint] as const)));
+  const footprints = pcbs.flatMap(pcb => pcb.footprints);
+  // A reference is local to a design, never a globally unique join key.
+  const footprintForPart = (part: PartIr) => {
+    const candidates = footprints.filter(f => f.reference === part.reference);
+    const explicit = candidates.filter(f => f.id === part.footprintInstanceId);
+    if (explicit.length === 1) return explicit[0];
+    const directory = (path: string) => path.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+    const local = candidates.filter(f => part.sourceRefs.some(r => directory(r.path) === directory(f.sourceRef.path)));
+    return local.length === 1 ? local[0] : candidates.length === 1 ? candidates[0] : undefined;
+  };
+  const partById = new Map(parts.map(p => [p.id, p]));
   const padById = new Map(pcbs.flatMap((pcb) => pcb.pads.map((pad) => [pad.id, pad] as const)));
   const pcbNetByPad = new Map<string, NetIr>();
   for (const net of nets.filter((item) => item.domain === "pcb_physical")) {
@@ -19,7 +29,7 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
   }
 
   for (const part of parts) {
-    const footprint = footprintByReference.get(part.reference);
+    const footprint = footprintForPart(part);
     if (!footprint) {
       if (!pcbs.length) continue;
       if (!part.footprint && part.reference.startsWith("#")) continue;
@@ -49,7 +59,7 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
       nets
         .filter((net) => net.domain === "schematic_logical")
         .flatMap((net) => net.endpoints)
-        .filter((endpoint) => endpoint.type === "symbol_pin" && endpoint.identifier.reference === part.reference && endpoint.targetId)
+        .filter((endpoint) => endpoint.type === "symbol_pin" && endpoint.identifier.partId === part.id && endpoint.targetId)
         .map((endpoint) => [endpoint.targetId!, endpoint] as const),
     );
     const mappedPinNumbers = new Set<string>();
@@ -84,7 +94,8 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
   for (const logicalNet of logicalNets) {
     const verifiedTargets = new Map<string, { net: NetIr; evidence: string[] }>();
     for (const pinEndpoint of logicalNet.endpoints.filter((endpoint) => endpoint.type === "symbol_pin")) {
-      const footprint = footprintByReference.get(pinEndpoint.identifier.reference);
+      const part = partById.get(pinEndpoint.identifier.partId);
+      const footprint = part ? footprintForPart(part) : undefined;
       if (!footprint) continue;
       const pad = Array.from(padById.values()).find((candidate) => candidate.footprintId === footprint.id && candidate.number === pinEndpoint.identifier.pin);
       if (!pad) continue;
@@ -119,7 +130,8 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
         });
       }
     } else {
-      const sameName = physicalNets.find((net) => net.canonicalName === logicalNet.canonicalName);
+      const sameNames = physicalNets.filter((net) => net.canonicalName === logicalNet.canonicalName);
+      const sameName = sameNames.length === 1 ? sameNames[0] : undefined;
       if (sameName) {
         links.push({
           id: stableId("link", "schematic_net_to_pcb_net", logicalNet.id, sameName.id),
@@ -133,7 +145,17 @@ function linkDocuments(parts: PartIr[], nets: NetIr[], pcbs: KicadParseOutput["p
       }
     }
   }
-  return links;
+  const unique = new Map<string, (typeof links)[number]>();
+  for (const link of links) {
+    const key = JSON.stringify([link.type, link.sourceEntityId, link.targetEntityId]);
+    const previous = unique.get(key);
+    if (!previous) unique.set(key, link);
+    else {
+      previous.evidence = [...new Set([...previous.evidence, ...link.evidence])];
+      if (previous.status !== link.status) previous.status = "conflicting";
+    }
+  }
+  return [...unique.values()];
 }
 
 function calculateFidelity(
@@ -285,9 +307,9 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     generatedAt: new Date().toISOString(),
     parser: {
       agent: "eda-canonical-ir-agent",
-      agentVersion: "1.5.0",
+      agentVersion: "1.5.1",
       adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? parsed.schematics.length || parsed.pcbs.length ? "altium-cfb-records" : "altium-safe-intake" : "unknown",
-      adapterVersion: "1.5.0",
+      adapterVersion: "1.5.1",
       deterministic: true,
       llmUsedForParsing: false,
       roundTripReadiness: "read_only",

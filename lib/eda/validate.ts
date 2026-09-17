@@ -117,6 +117,11 @@ export function validateReferentialIntegrity(scope: ReferenceScope): ParseDiagno
   for (const source of scope.sourceMap) reference(`source:${source.path}`, "assetId", source.assetId, source);
 
   const diagnostics: ParseDiagnostic[] = [];
+  for (const net of scope.nets) {
+    if (/^\s*[Mm]\s*[-+\d.]+[\s,]+[-+\d.]+.*[LlHhVvCcQqAaZz]/.test(net.canonicalName)) {
+      diagnostics.push(diagnostic("IR_INVALID_NET_NAME", `${net.id} 的网络名疑似 SVG 几何路径，不能作为有效网络。`, "error", "consistency", net.sourceRefs[0], "preserved"));
+    }
+  }
   for (const [id, kinds] of duplicateIds) {
     diagnostics.push(
       diagnostic(

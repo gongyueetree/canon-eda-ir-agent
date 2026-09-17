@@ -1,4 +1,5 @@
 import {legacyFieldLayout,legacyLabelRotation} from "./legacy-text";
+import { activeKicadDocuments } from "./active-documents";
 import { arcPoints } from "./view-geometry";
 import {
   allDescendants,
@@ -1164,7 +1165,9 @@ function parsePcb(
   try {
     root = rootExpression(parseSExpression(decodeUtf8(input.bytes)));
   } catch (error) {
-    diagnostics.push(diagnostic("PARSER_SYNTAX_ERROR", error instanceof Error ? error.message : "KiCad PCB 解析失败。", "error", "syntax", sourceRef(asset.id, asset.relativePath)));
+    const message = error instanceof Error ? error.message : "KiCad PCB 解析失败。";
+    const resource = /limit .*exceeded/i.test(message);
+    diagnostics.push(diagnostic(resource ? "PCB_RESOURCE_LIMIT" : "PARSER_SYNTAX_ERROR", `${asset.relativePath} (${input.bytes.length} bytes): ${message}${resource ? "。PCB 子解析失败，项目仅部分完成；请移除非必要填充数据后重试，或使用原生 KiCad 导出精简副本。" : ""}`, "error", resource ? "resource" : "syntax", sourceRef(asset.id, asset.relativePath)));
     return { nets: [], constraints: [], sourceMap: [], recognized: 0, normalized: 0, unknown: [] };
   }
   if (!root || head(root) !== "kicad_pcb") return { nets: [], constraints: [], sourceMap: [], recognized: 0, normalized: 0, unknown: [] };
@@ -1516,9 +1519,16 @@ export function parseKicad(inputs: InputAsset[], inventory: SourceAsset[]): Kica
   const byPath = new Map(inputs.map((input) => [input.path, input]));
   const legacyDefinitions = parseLegacySymbolDefinitions(inputs);
   const legacySchematicPaths = selectedLegacySchematicPaths(inputs, inventory);
+  const active = activeKicadDocuments(inputs, inventory, output.diagnostics);
   for (const asset of inventory.filter((item) => item.detectedFormat === "kicad")) {
     const input = byPath.get(asset.relativePath);
     if (!input) continue;
+    if ([".sch", ".kicad_sch", ".kicad_pcb", ".brd"].includes(asset.extension) && !active.has(asset.relativePath)) {
+      asset.irParticipation = "excluded";
+      output.diagnostics.push(diagnostic(asset.extension === ".sch" ? "LEGACY_SCHEMATIC_NOT_IN_PROJECT" : "DOCUMENT_NOT_IN_ACTIVE_PROJECT", `${asset.relativePath} 为非活动文档，仅保留源文件清单，不参与 IR。`, "information", "structure", sourceRef(asset.id, asset.relativePath), "preserved"));
+      continue;
+    }
+    asset.irParticipation = "included";
     if (asset.extension === ".kicad_pro") {
       try {
         const project = JSON.parse(decodeUtf8(input.bytes)) as Record<string, unknown>;

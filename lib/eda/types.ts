@@ -23,6 +23,7 @@ export type SourceRef = {
 };
 
 export type SourceAsset = {
+  irParticipation?: "included" | "excluded";
   id: string;
   relativePath: string;
   fileName: string;
@@ -274,9 +275,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.5.0";
+    agentVersion: "1.5.1";
     adapterId: string;
-    adapterVersion: "1.5.0";
+    adapterVersion: "1.5.1";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

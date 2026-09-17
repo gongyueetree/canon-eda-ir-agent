@@ -581,3 +581,5 @@ td code { color: #718078; font-size: 8px; }
 .design-quantity { padding:4px 9px; border-radius:12px; background:#eaf3ed; color:#315e44; font-size:12px; }
 .design-group-context { font-size:12px; color:#62796b; overflow-wrap:anywhere; line-height:1.6; }
 .design-group > .design-gallery { margin-bottom:0; }
+
+.design-preview-notice { font-size:12px; color:#876327; line-height:1.5; background:#fff9e9; padding:8px; border-radius:6px; }

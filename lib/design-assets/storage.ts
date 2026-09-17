@@ -47,7 +47,7 @@ async function verifyFile(tenant:string,asset:DesignAsset){
 
 async function stageAsset(tenant:string,input:DesignAsset,storage:'file'|'official'){
  validateAsset(input);if(!['file','official'].includes(storage))throw Error('INVALID_STORAGE');await ensure();
- const asset:DesignAsset={id:'',kind:input.kind,name:input.name,mpn:input.mpn.trim(),manufacturer:input.manufacturer.trim(),identityConfirmed:true,fingerprint:input.fingerprint,origins:input.origins,warnings:[],format:input.format,dependencies:input.dependencies};
+ const asset:DesignAsset={id:'',kind:input.kind,name:input.name,mpn:input.mpn.trim(),manufacturer:input.manufacturer.trim(),identityConfirmed:true,fingerprint:input.fingerprint,origins:input.origins,warnings:Array.isArray(input.warnings)?input.warnings.filter((w):w is string=>typeof w==='string').map(w=>w.slice(0,1000)).slice(0,30):[],format:input.format,dependencies:input.dependencies};
  if(storage==='official'){
   const official=await checkOfficial(asset.kind,asset.name,undefined,input.official?.revision??'master');if(!['found','match'].includes(official.status)||!official.fingerprint)throw Error('OFFICIAL_REFERENCE_NOT_VERIFIED');
   if(input.official?.fingerprint&&input.official.fingerprint!==official.fingerprint)throw Error('OFFICIAL_VERSION_CHANGED');

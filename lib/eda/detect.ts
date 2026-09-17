@@ -93,8 +93,11 @@ export async function inventoryAssets(inputs: InputAsset[]): Promise<{
     { kicad: 0, altium: 0, allegro: 0, easyeda: 0, unknown: 0 },
   );
   const allegroEntry = assets.some(a => a.fileName === ALLEGRO_MANIFEST || a.detectedFormat === "allegro" && a.extension === ".brd");
-  const sourceFormat = allegroEntry ? "allegro" : (["kicad", "easyeda", "altium", "allegro"] as SourceFormat[]).sort(
-    (left, right) => counts[right] - counts[left],
+  const drawings=assets.filter(a=>['schematic','pcb'].includes(a.entryRole));
+  const drawingCounts=(format:SourceFormat)=>drawings.filter(a=>a.detectedFormat===format).length;
+  const convertedKiCad=assets.some(a=>a.extension==='.kicad_sch')&&assets.some(a=>a.extension==='.kicad_pcb');
+  const sourceFormat = allegroEntry ? "allegro" : convertedKiCad ? "kicad" : (["kicad", "easyeda", "altium", "allegro"] as SourceFormat[]).sort(
+    (left, right) => drawingCounts(right)-drawingCounts(left)||counts[right] - counts[left],
   )[0];
   if (!sourceFormat || counts[sourceFormat] === 0) {
     diagnostics.push(diagnostic("FORMAT_NOT_DETECTED", "未检测到受支持的 EDA 格式。", "error", "format"));

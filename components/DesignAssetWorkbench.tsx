@@ -11,6 +11,7 @@ import { sha256 } from '../lib/eda/util';
 import { apiFetch } from '../lib/client-api';
 import { filesToInputAssets } from '../lib/eda/archive';
 import { parseEdaProject } from '../lib/eda/parse';
+import { libraryArchive } from '../lib/design-assets/archive';
 import { groupDesignAssets } from '../lib/design-assets/groups';
 import { DesignAssetGallery } from './DesignAssetGallery';
 const kinds={symbol:'原理图符号',footprint:'PCB 封装',model:'3D 模型'};
@@ -41,9 +42,10 @@ export function DesignAssetWorkbench({bundle,assets,mappings,active=true}:{bundl
   if(!previews[key])return null;
   const selected=items.find(a=>a.id===previews[key])??items[0];
   const ordered=[selected,...items.filter(a=>a.id!==selected.id)];
-  return <div className="design-gallery"><div className="design-actions"><strong>{selected.manufacturer} {selected.mpn} · 元件库预览</strong><button onClick={()=>closePreview(key)}>关闭预览</button></div><DesignAssetGallery key={ordered.map(a=>a.id).join(':')} assets={ordered} active={active}/><p className="design-gallery-note">按源库文件显示真实几何；多个版本可切换查看。3D 栏显示独立模型。</p></div>;
+  return <div className="design-gallery"><div className="design-actions"><strong>{selected.manufacturer} {selected.mpn} · 元件库预览</strong><button disabled={busy} onClick={()=>void downloadLibrary(items)}>下载器件库包</button><button onClick={()=>closePreview(key)}>关闭预览</button></div><DesignAssetGallery key={ordered.map(a=>a.id).join(':')} assets={ordered} active={active}/><p className="design-gallery-note">按源库文件显示真实几何；多个版本可切换查看。3D 栏显示独立模型。</p></div>;
  };
 
+ const downloadLibrary=(items:Array<ExtractedAsset|AssetRecord>)=>task(async()=>{setStatus('正在打包库文件及关联模型…');const bytes=await libraryArchive(items);const url=URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>],{type:'application/zip'}));const link=document.createElement('a');link.href=url;link.download=(items[0]?.mpn||'component').replace(/[^\p{L}\p{N}_.+-]/gu,'_')+'-kicad-library.zip';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setStatus('库文件包已下载；模型路径已关联，缺失项和转换说明见 manifest.json。');});
  const stage=(a:ExtractedAsset,storage:'file'|'official')=>task(async()=>{const result=await stageCandidate(a,storage,setStatus);setStatus(result.duplicate?'该资产已存在，已合并工程来源；没有覆盖原审核结果。':'已加入候选库，等待编辑审核。');await refresh();});
  const draft=(a:AssetRecord)=>drafts[a.id]??{sourceUrl:a.sourceUrl||a.official?.url||'',license:a.license||'',reviewNote:a.reviewNote||'',acknowledge:false};
  const updateDraft=(a:AssetRecord,patch:Partial<ReturnType<typeof draft>>)=>setDrafts(old=>({...old,[a.id]:{...draft(a),...patch}}));

@@ -63,3 +63,20 @@ test("AD PCB preserves explicit nets, binary units and unattached pads", async (
   assert.deepEqual(bundle.pcbs[0].pads[0].position, { x: "0.254", y: "-0.508", unit: "mm" });
   assert.equal(bundle.diagnostics.filter(d => d.severity === "error" || d.severity === "fatal").length, 0);
 });
+
+test('Altium source geometries export reviewable KiCad symbol and footprint assets',async()=>{
+ const {extractDesignAssets}=await import('../lib/design-assets/extract');
+ const sch=document(['|HEADER=Protel','|RECORD=1|LibReference=LED_red|CurrentPartId=1|Location.X=100|Location.Y=100','|RECORD=34|OwnerIndex=0|Name=Designator|Text=D1','|RECORD=41|OwnerIndex=0|Name=MPN|Text=LTST-C150EKT','|RECORD=2|OwnerIndex=0|OwnerPartId=1|PinConglomerate=0|PinLength=20|Location.X=100|Location.Y=100|Designator=1|Name=A','|RECORD=13|OwnerIndex=0|Location.X=100|Location.Y=100|Corner.X=110|Corner.Y=110']);
+ const c=CFB.utils.cfb_new();CFB.utils.cfb_add(c,'Board6/Data',block('|VX0=0mil|VY0=0mil|VX1=100mil|VY1=0mil|VX2=100mil|VY2=100mil'));
+ CFB.utils.cfb_add(c,'Components6/Data',block('|SOURCEDESIGNATOR=D1|PATTERN=LED_0603|X=10mm|Y=20mm|ROTATION=90|LAYER=TOP'));
+ const payload=Buffer.alloc(114);payload[0]=1;payload.writeUInt16LE(0,7);payload.writeUInt16LE(65535,3);payload.writeInt32LE(Math.round(10/.00000254),13);payload.writeInt32LE(Math.round(21/.00000254),17);payload.writeInt32LE(200000,21);payload.writeInt32LE(100000,25);payload[49]=2;payload.writeDoubleLE(90,52);
+ const chunks=[Buffer.from([1,49]),Buffer.alloc(0),Buffer.alloc(0),Buffer.alloc(0),payload,Buffer.alloc(0)].map(b=>{const h=Buffer.alloc(4);h.writeUInt32LE(b.length);return Buffer.concat([h,b]);});CFB.utils.cfb_add(c,'Pads6/Data',Buffer.concat([Buffer.from([2]),...chunks]));
+ const inputs=[{path:'test.SchDoc',bytes:sch},{path:'test.PcbDoc',bytes:new Uint8Array(CFB.write(c,{type:'buffer'}))}];
+ const bundle=await parseEdaProject(inputs),assets=await extractDesignAssets(bundle,inputs);const symbol=assets.find(a=>a.kind==='symbol')!,fp=assets.find(a=>a.kind==='footprint')!;
+ assert.ok(symbol.file);assert.ok(fp.file);assert.ok(symbol.warnings.some(w=>w.includes('Altium')));
+ const st=new TextDecoder().decode(symbol.file!.bytes);assert.match(st,/\(pin unspecified line/);assert.match(st,/\(number "1"/);assert.match(st,/\(length 5.08\)/);
+ const ft=new TextDecoder().decode(fp.file!.bytes);assert.match(ft,/\(pad "1" smd rect/);assert.ok(!ft.includes('(net '));
+ const parsed=await parseEdaProject([{path:'converted.kicad_pcb',bytes:new TextEncoder().encode('(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal)) '+ft+')')}]);assert.equal(parsed.pcbs[0].pads.length,1);assert.equal(parsed.pcbs[0].pads[0].size?.x,'0.508');
+ // A folder full of KiCad libraries must not displace the actual AD drawings.
+ const libraries=Array.from({length:5},(_,i)=>({path:`lib${i}.kicad_sym`,bytes:symbol.file!.bytes}));assert.equal((await parseEdaProject([...inputs,...libraries])).project.sourceFormat,'altium');
+});

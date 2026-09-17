@@ -12,7 +12,7 @@ function fixture(mpn=true){return [{path:'project.kicad_sch',bytes:enc.encode(`(
 
 test('extracts standalone native assets, normalizes placements and keeps provenance across repeats',async()=>{
  const inputs=fixture(),bundle=await parseEdaProject(inputs),assets=await extractDesignAssets(bundle,inputs);
- assert.equal(assets.length,3);for(const a of assets){assert.equal(a.mpn,'ABC-123');assert.equal(a.identityConfirmed,true);assert.equal(a.origins.length,2);assert.ok(a.file);}
+ assert.equal(assets.length,3);for(const a of assets){assert.equal(a.mpn,'ABC-123');assert.equal(a.identityConfirmed,true);assert.equal(new Set(a.origins.map(o=>o.reference)).size,2);assert.ok(a.file);}
  const fp=assets.find(a=>a.kind==='footprint')!;const text=new TextDecoder().decode(fp.file!.bytes);assert.ok(!text.includes('(net '));assert.ok(!text.includes('(uuid '));assert.ok(text.includes('(at 1 0 0)'));assert.ok(!text.includes('U1'));
  const sch=assets.find(a=>a.kind==='symbol')!;assert.ok(new TextDecoder().decode(sch.file!.bytes).startsWith('(kicad_symbol_lib'));validateAsset(sch);
  const inputs2=inputs.map(a=>({...a,path:'second/'+a.path}));const b2=await parseEdaProject(inputs2);const second=await extractDesignAssets(b2,inputs2);const combined=mergeAssets([...assets,...second]);assert.equal(combined.length,3);assert.equal(combined[0].origins.length,4);
@@ -152,4 +152,40 @@ test('preview opens inside the deduplicated component card and can be closed in 
   await click('预览 / 对比');assert.ok(cards[0].querySelector('.design-gallery'));assert.equal(document.querySelector('.design-assets > .design-gallery'),null);
   await click('关闭预览');assert.equal(document.querySelector('.design-gallery'),null);
  }finally{await act(async()=>root.unmount());globalThis.fetch=original;dom.window.close();}
+});
+
+test('project-local library folder supplies missing symbol, footprint and related model',async()=>{
+ const source='(kicad_sch (version 20250114) (symbol (lib_id "MyLib:Chip") (at 20 30 0) (uuid "s1") (unit 1) (property "Reference" "U1") (property "Value" "Chip") (property "MPN" "LOCAL-IC") (property "Footprint" "MyFootprints:FP")))';
+ const inputs=[{path:'board/main.kicad_sch',bytes:enc.encode(source)},
+ {path:'board/libraries/MyLib.kicad_sym',bytes:enc.encode('(kicad_symbol_lib '+symbol.replace('Custom:Chip','Chip')+')')},
+ {path:'board/libraries/MyFootprints.pretty/FP.kicad_mod',bytes:enc.encode('(footprint "FP" (layer "F.Cu") (pad "1" smd rect (at 0 0) (size 1 2) (layers "F.Cu")) (model "../../models/local.step" (offset (xyz 1 2 3)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 90))))')},
+ {path:'board/models/local.step',bytes:enc.encode('ISO-10303-21;\nEND-ISO-10303-21;')}];
+ const assets=await extractDesignAssets(await parseEdaProject(inputs),inputs);
+ assert.ok(assets.find(a=>a.kind==='symbol')?.file);const fp=assets.find(a=>a.kind==='footprint')!;const model=assets.find(a=>a.kind==='model')!;
+ assert.ok(fp.file);assert.ok(model.file);assert.equal(fp.dependencies?.[0].fileHash,model.fileHash);assert.deepEqual(fp.dependencies?.[0].offset,[1,2,3]);
+ assert.ok(model.origins.some(o=>o.path==='board/models/local.step'));
+});
+
+test('relocated 3D paths resolve uploaded files, reject ambiguous names and keep local files over official lookup',async()=>{
+ const {resolveModelPath}=await import('../lib/models/footprints');const b=await parseEdaProject(fixture());const pcb=b.pcbs[0];
+ const bytes=enc.encode('ISO-10303-21;\nEND-ISO-10303-21;'),a={path:'project/Library/3D/SOIC8.STEP',bytes};
+ assert.equal(resolveModelPath('C:\\old\\design\\models\\SOIC8.step',pcb,[a]).asset,a);
+ assert.equal(resolveModelPath('${KICAD10_3DMODEL_DIR}/Package_SO.3dshapes/SOIC8.step',pcb,[a]).asset,a);
+ assert.equal(resolveModelPath('SOIC8.stp',pcb,[a]).asset,a);
+ assert.equal(resolveModelPath('SOIC8.step',pcb,[a,{path:'other/SOIC8.step',bytes}]).ambiguous,true);
+});
+
+test('unique same-name project model can supplement a footprint without a model reference',async()=>{
+ const inputs=fixture().slice(0,2).map(a=>a.path.endsWith('.kicad_pcb')?{...a,bytes:enc.encode(new TextDecoder().decode(a.bytes).replace(/\(model "model.step" \(offset \(xyz 0 0 0\)\) \(scale \(xyz 1 1 1\)\) \(rotate \(xyz 0 0 0\)\)\)/g,''))}:a);
+ inputs.push({path:'libraries/3D/FP.step',bytes:enc.encode('ISO-10303-21;\nEND-ISO-10303-21;')});
+ const assets=await extractDesignAssets(await parseEdaProject(inputs),inputs),fp=assets.find(a=>a.kind==='footprint')!;
+ assert.ok(assets.find(a=>a.kind==='model')?.file);assert.match(new TextDecoder().decode(fp.file!.bytes),/libraries\/3D\/FP.step/);assert.ok(fp.warnings.some(w=>w.includes('安装变换')));
+});
+
+test('downloaded component archive includes original models and portable footprint associations',async()=>{
+ const {libraryArchive}=await import('../lib/design-assets/archive');const {unzipSync,strFromU8}=await import('fflate');
+ const inputs=fixture(),assets=await extractDesignAssets(await parseEdaProject(inputs),inputs),zip=unzipSync(await libraryArchive(assets));
+ const model=Object.keys(zip).find(p=>p.startsWith('3dmodels/'))!,fp=Object.keys(zip).find(p=>p.startsWith('footprints.pretty/'))!;
+ assert.ok(model);assert.ok(fp);assert.deepEqual(zip[model],inputs[2].bytes);
+ assert.ok(strFromU8(zip[fp]).includes('${KIPRJMOD}/'+model));assert.ok(Object.keys(zip).some(p=>p.endsWith('.kicad_sym')));
 });

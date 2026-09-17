@@ -5,12 +5,17 @@ import { sha256 } from '../eda/util';
 import { embeddedModels, resolveModelPath } from '../models/footprints';
 import { fingerprint, footprintFile, sections, symbolDefinition, symbolFile, type parse } from './kicad';
 import { identityKey, originKey, type ExtractedAsset, type Origin, type AssetKind } from './types';
+import { parseEdaProject } from '../eda/parse';
+import { parse as parseLibrary,serialize } from './kicad';
+import { localLibraries } from './local-libraries';
+import { altiumSymbol,altiumFootprint,altiumAssetWarning } from './altium-assets';
 const enc=new TextEncoder();
 export async function candidateId(asset:Pick<ExtractedAsset,'mpn'|'manufacturer'|'kind'|'fingerprint'|'identityConfirmed'|'identityScope'|'origins'>){return sha256(enc.encode(JSON.stringify([asset.identityConfirmed?identityKey(asset.manufacturer,asset.mpn):['unconfirmed',asset.origins[0]?.bundleId,asset.identityScope,asset.mpn],asset.kind,asset.fingerprint])));}
 export async function identify(asset:ExtractedAsset,mpn:string,manufacturer:string):Promise<ExtractedAsset>{const updated={...asset,mpn:mpn.trim(),manufacturer:manufacturer.trim(),identityConfirmed:!!mpn.trim()};return {...updated,id:await candidateId(updated)};}
 export function mergeAssets(assets:ExtractedAsset[]):ExtractedAsset[]{const out=new Map<string,ExtractedAsset>();for(const a of assets){const old=out.get(a.id);if(!old){out.set(a.id,{...a,origins:[...a.origins]});continue;}const origins=new Map([...old.origins,...a.origins].map(o=>[originKey(o),o]));old.origins=[...origins.values()];old.warnings=[...new Set([...old.warnings,...a.warnings])];}return [...out.values()];}
 export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputAsset[],mappings:Record<string,BomMapping>={}):Promise<ExtractedAsset[]>{
  const byPath=new Map(inputs.map(a=>[a.path,a]));
+ const libraries=localLibraries(inputs);
  const sourceHashes=new Map(bundle.inventory.map(i=>[i.relativePath,i.sha256]));
  type Node=ReturnType<typeof parse>;
  const docs=new Map<string,{defs?:Node;symbols:Node[];footprints:Node[];version?:string;error?:string}>();
@@ -51,20 +56,63 @@ export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputA
     }
    }
   }
+  if(!symbolAdded){
+   const library=libraries.symbol(symbolName);
+   if(library){await add('symbol',symbolName,library.file,[...part.sourceRefs.map(r=>origin(r.path,r.nativeId)),origin(library.source.path)],['从工程本地符号库提取']);symbolAdded=true;}
+   else {const converted=altiumSymbol(bundle,part,safeName(symbolName));if(converted){await add('symbol',symbolName,converted,part.sourceRefs.map(r=>origin(r.path,r.nativeId)),[altiumAssetWarning]);symbolAdded=true;}}
+  }
   if(!symbolAdded)await add('symbol',symbolName,undefined,part.sourceRefs.map(r=>origin(r.path,r.nativeId)),['源文件未包含可独立提取的现代 KiCad 符号定义；不会用 IR 示意框冒充库符号']);
   const fps=linkedFootprints(bundle,part);
+  if(!fps.length&&part.footprint){
+   const library=libraries.footprint(part.footprint);
+   if(library){
+    const root=parseLibrary(new TextDecoder().decode(library.file.bytes));root.items.push(parseLibrary('(at 0 0 0)'));
+    const converted=await parseEdaProject([{path:'local-library.kicad_pcb',bytes:enc.encode(`(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal) (31 "B.Cu" signal)) ${serialize(root)})`)}]);
+    const pcb=converted.pcbs[0],fp=pcb?.footprints[0];if(fp){fp.reference=part.reference;fp.libraryIdentifier=part.footprint;fp.sourceRef={...fp.sourceRef,path:library.source.path};pcb.sourceRefs=[fp.sourceRef];fps.push({pcb,fp});}
+   }
+  }
   for(const {pcb,fp} of fps){
    const path=fp.sourceRef.path,doc=docs.get(path);let file:InputAsset|undefined;const warnings:string[]=[];
    try{const node=doc?.footprints.find(n=>(childValue(n,'uuid')||childValue(n,'tstamp'))===fp.sourceRef.nativeId)||doc?.footprints.find(n=>directChildren(n,'property').some(p=>atom(p.items[1])==='Reference'&&atom(p.items[2])===fp.reference)||directChildren(n,'fp_text').some(p=>atom(p.items[1])==='reference'&&atom(p.items[2])===fp.reference));
     if(node)file={path:`${safeName(fp.libraryIdentifier)}.kicad_mod`,bytes:enc.encode(footprintFile(node,doc?.version))};
     else warnings.push('当前源格式的封装库文件提取尚未支持；保留来源，不生成近似封装');
    }catch(e){warnings.push(String(e));}
-   const footprintAsset=await add('footprint',fp.libraryIdentifier,file,[origin(path,fp.sourceRef.nativeId)],warnings);footprintAsset.dependencies=[];
+   const library=libraries.footprint(fp.libraryIdentifier);
+   if(!file&&library){file=library.file;warnings.length=0;warnings.push('从工程本地封装库提取');}
+   if(!file){try{file=altiumFootprint(pcb,fp);if(file){warnings.length=0;warnings.push(altiumAssetWarning,'当前 Altium 封装候选保留已解析焊盘及模型；丝印、装配边界和特殊焊盘需与原文件核对。');}}catch(e){warnings.push(String(e));}}
+   const footprintAsset=await add('footprint',fp.libraryIdentifier,file,[origin(path,fp.sourceRef.nativeId),...(library?[origin(library.source.path)]:[])],warnings);footprintAsset.dependencies=[];
+   const modelRefs=[...(fp.models??[])];
+   if(!modelRefs.length&&library){
+    for(const m of directChildren(library.root,'model')){
+     const xyz=(key:string,defaults:number[])=>{const node=directChildren(m,key)[0],value=node&&directChildren(node,'xyz')[0];return value?[1,2,3].map(i=>Number(atom(value.items[i])??defaults[i-1])):defaults;};
+     modelRefs.push({path:atom(m.items[1])??'',offset:xyz('offset',[0,0,0]),scale:xyz('scale',[1,1,1]),rotation:xyz('rotate',[0,0,0]),hidden:false});
+    }
+   }
+   if(!modelRefs.length){
+    const stem=fp.libraryIdentifier.split(':').at(-1)?.toLowerCase();
+    const matches=inputs.filter(a=>/\.(step|stp|wrl)$/i.test(a.path)&&a.path.split('/').at(-1)?.replace(/\.(step|stp|wrl)$/i,'').toLowerCase()===stem);
+    if(matches.length===1){modelRefs.push({path:matches[0].path,offset:[0,0,0],scale:[1,1,1],rotation:[0,0,0],hidden:false});footprintAsset.warnings.push('模型按唯一同名本地文件关联；源封装未提供安装变换，装配位置须人工确认。');}
+    else if(matches.length>1)footprintAsset.warnings.push('存在多个同名本地模型，未自动选择，请补充确认后的模型文件。');
+   }
    const source=byPath.get(path);let models:InputAsset[]=[];try{if(source)models=embeddedModels(source);}catch(e){warnings.push(String(e));}
-   for(const model of fp.models??[]){const resolved=resolveModelPath(model.path,pcb,[...inputs,...models]);const modelAsset=await add('model',model.path,resolved.asset?[...inputs,...models].find(a=>a===resolved.asset):undefined,[origin(path,fp.sourceRef.nativeId)],resolved.asset?[]:['工程仅提供模型引用，未提供文件；先查询官方库，找不到时需补充原始模型']);footprintAsset.dependencies.push({path:model.path,fileHash:modelAsset.fileHash,offset:model.offset,scale:model.scale,rotation:model.rotation});}
-   if(!fp.models?.length)await add('model','未关联 3D',undefined,[origin(path,fp.sourceRef.nativeId)],['封装未关联器件模型']);
+   for(const model of modelRefs){
+    const available=[...inputs,...models];let resolved=resolveModelPath(model.path,pcb,available);
+    if(!resolved.asset&&library){const localPcb={...pcb,sourceRefs:[{...fp.sourceRef,path:library.source.path}]};const local=resolveModelPath(model.path,localPcb,available);if(local.asset)resolved=local;}
+    const modelWarnings=resolved.asset?(resolved.matchedBy==='filename'?['按工程内唯一模型文件名关联，请核对与封装是否一致']:[]):[resolved.ambiguous?'多个本地模型路径匹配，未自动关联；请补充确认后的模型文件':'工程仅提供模型引用，未提供文件；先查询官方库，找不到时需补充原始模型'];
+    const modelAsset=await add('model',model.path,resolved.asset,[origin(path,fp.sourceRef.nativeId),...(resolved.asset&&sourceHashes.has(resolved.asset.path)?[origin(resolved.asset.path)]:[])],modelWarnings);
+    footprintAsset.dependencies.push({path:model.path,fileHash:modelAsset.fileHash,offset:model.offset,scale:model.scale,rotation:model.rotation});
+   }
+   if(modelRefs.length&&footprintAsset.file){
+    const root=parseLibrary(new TextDecoder().decode(footprintAsset.file.bytes));
+    if(!directChildren(root,'model').length){
+     for(const m of modelRefs)root.items.push(parseLibrary(`(model ${JSON.stringify(m.path)} (offset (xyz ${m.offset.join(' ')})) (scale (xyz ${m.scale.join(' ')})) (rotate (xyz ${m.rotation.join(' ')})))`));
+     footprintAsset.file={...footprintAsset.file,bytes:enc.encode(serialize(root))};footprintAsset.fileHash=await sha256(footprintAsset.file.bytes);footprintAsset.size=footprintAsset.file.bytes.length;footprintAsset.fingerprint=await fingerprint('footprint',footprintAsset.file.bytes);footprintAsset.id=await candidateId(footprintAsset);
+    }
+   }
+   if(!modelRefs.length)await add('model' ,'未关联 3D',undefined,[origin(path,fp.sourceRef.nativeId)],['封装未关联器件模型；工程内没有唯一同名模型']);
+
   }
-  if(!fps.length){await add('footprint',part.footprint||'未关联封装',undefined,part.sourceRefs.map(r=>origin(r.path,r.nativeId)),['未找到唯一对应的已放置 PCB 封装']);await add('model','未关联 3D',undefined,part.sourceRefs.map(r=>origin(r.path,r.nativeId)),['无可提取的封装模型']);}
+  if(!fps.length){const library=libraries.footprint(part.footprint||'');await add('footprint',part.footprint||'未关联封装',library?.file,part.sourceRefs.map(r=>origin(r.path,r.nativeId)),['未找到唯一对应的已放置 PCB 封装']);await add('model','未关联 3D',undefined,part.sourceRefs.map(r=>origin(r.path,r.nativeId)),['无可提取的封装模型']);}
  }
  return mergeAssets(result);
 }

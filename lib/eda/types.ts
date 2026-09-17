@@ -139,6 +139,8 @@ export type SchematicIr = {
     number: string;
     name: string;
     electricalType?: string;
+    bodyPosition?: IrPoint;
+    hidden?: boolean;
     position: IrPoint;
     sourceRef: SourceRef;
   }>;

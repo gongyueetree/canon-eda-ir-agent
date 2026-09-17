@@ -23,6 +23,7 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
     if (r.RECORD !== "1") return;
     const children = records.filter(p => p.OWNERINDEX === String(index));
     const fields = Object.fromEntries(children.filter(p => ["34", "41"].includes(p.RECORD)).map(p => [p.NAME, p.TEXT ?? ""]));
+    if(r.LIBREFERENCE)fields.lib_id=r.LIBREFERENCE;
     const partId = stableId("part", id, String(index));
     const part: PartIr = { id: partId, logicalPartKey: r.UNIQUEID || partId, reference: fields.Designator || "?", value: fields.Comment || r.LIBREFERENCE || "", fields, manufacturerRaw: fields.Manufacturer, mpnRaw: fields["Manufacturer Part Number"] || fields.MPN, variantStatus: "unknown", pinPadMap: [], symbolUnits: [{ id: `${partId}:unit`, unit: num(r, "CURRENTPARTID") || 1, position: pos(r), rotation: "0" }], sourceRefs: [{ ...sourceRef(asset.id, asset.relativePath), nativeId: String(index) }] };
     part.manufacturerRaw ||= fields["Manufacturer 1"];
@@ -42,7 +43,7 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
       const angle = (num(r, "PINCONGLOMERATE") & 3) * Math.PI / 2, length = coord(r, "PINLENGTH");
       const end = pt(Number(p.x) + length * Math.cos(angle), Number(p.y) - length * Math.sin(angle));
       if (!(num(r, "PINCONGLOMERATE") & 4)) graphic([p, end]);
-      sch.pins.push({ id: rid, partId: owner.id, symbolUnitId: unit, reference: owner.reference, number: r.DESIGNATOR || "", name: r.NAME || "", position: end, sourceRef: sr });
+      sch.pins.push({ id: rid, partId: owner.id, symbolUnitId: unit, reference: owner.reference, number: r.DESIGNATOR || "", name: r.NAME || "", position: end, bodyPosition:p, hidden:!!(num(r,"PINCONGLOMERATE")&4), sourceRef: sr });
     } else if (["6", "7"].includes(type)) graphic(points(), type === "7");
     else if (type === "13") graphic([p, pos(r, "CORNER.X", "CORNER.Y")]);
     else if (type === "14") { const q = pos(r, "CORNER.X", "CORNER.Y"); graphic([p, pt(Number(q.x), Number(p.y)), q, pt(Number(p.x), Number(q.y))], true); }

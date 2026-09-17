@@ -228,7 +228,10 @@ export function SchematicViewer({ bundle }: { bundle: CanonicalIrBundle }) {
                 const tx=anchor.x+Math.cos(angle*Math.PI/180)*distance,ty=anchor.y-Math.sin(angle*Math.PI/180)*distance;
                 return <g key={label.id} className="schematic-hierarchical-port" data-shape={label.shape??"passive"}><polyline points={outline.map(q=>`${anchor.x+q.x},${anchor.y+q.y}`).join(" ")} fill="none" stroke="#88734a" strokeWidth={Math.max(.5,size*.08)}/><text className="schematic-source-text" x={tx} y={ty} transform={`rotate(${textAngle} ${tx} ${ty})`} textAnchor={left?"end":"start"} dominantBaseline="central" style={{fontSize:size,fill:"#88734a"}}>{label.name}</text></g>;
               }
-              return <text key={label.id} className="schematic-source-text" x={p.x+(label.kind==="power"?0:left?-2:2)} y={p.y-2} textAnchor={label.kind==="power"?"middle":left?"end":"start"} style={{fontSize:Number(label.size??1.27)*scale,fill:label.kind==="power"?"#a83e54":"#325c9a"}}>{label.name}</text>;})}
+              const size=Number(label.size??1.27)*scale;
+              if(label.kind==="power")return <text key={label.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central" transform={`rotate(${-Number(label.rotation??0)} ${p.x} ${p.y})`} style={{fontSize:size,fill:"#a83e54"}}>{label.name}</text>;
+              const vertical=angle===90||angle===270;
+              return <g key={label.id} className="schematic-local-label" transform={`translate(${p.x} ${p.y}) rotate(${vertical?-90:0})`}><text className="schematic-source-text" x="0" y={-size*.2} textAnchor={angle===180||angle===270?"end":"start"} style={{fontSize:size,fill:"#325c9a"}}>{label.name}</text></g>;})}
             </g>
           </svg>
         </div>

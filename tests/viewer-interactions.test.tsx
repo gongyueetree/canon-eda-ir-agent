@@ -137,3 +137,12 @@ test('legacy cache-library resistor is rendered from its body and visible source
  assert.equal(b.schematics[0].graphics?.length,3);assert.equal(b.schematics[0].texts?.length,2);
  assert.equal(b.schematics[0].graphics?.[0].points[0].x,'49.784');
 });
+
+test('legacy local labels and symbol fields follow KiCad coordinate conventions',async()=>{
+ const {legacyFieldLayout,legacyLabelRotation}=await import('../lib/eda/legacy-text');
+ assert.equal(legacyLabelRotation('local',0),0);assert.equal(legacyLabelRotation('global',0),180);
+ assert.deepEqual(legacyFieldLayout(3100,1550,3100,1750,[0,-1,-1,0],true,'C'),{x:3300,y:1750,rotation:'0',align:'middle'});
+ assert.deepEqual(legacyFieldLayout(5150,2100,5150,2250,[-1,0,0,-1],false,'C'),{x:5150,y:2400,rotation:'0',align:'middle'});
+ const b=await parseEdaProject([{path:'labels.sch',bytes:new TextEncoder().encode('EESchema Schematic File Version 4\nText Label 3050 2350 0 50 ~ 0\nUSB_DP\n$EndSCHEMATC')}]);
+ assert.equal(b.schematics[0].labels[0].rotation,'0');assert.equal(b.schematics[0].labels[0].position.x,'77.47');
+});

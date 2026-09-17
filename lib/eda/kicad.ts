@@ -1,3 +1,4 @@
+import {legacyFieldLayout,legacyLabelRotation} from "./legacy-text";
 import { arcPoints } from "./view-geometry";
 import {
   allDescendants,
@@ -731,7 +732,8 @@ function parseLegacySchematic(
       for(const field of block){
         const m=field.match(/^F\s+([01])\s+"((?:\\.|[^"\\])*)"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\S+)\s+(\S+)/);
         if(!m||m[7]!=="0000"||isPowerSymbol)continue;
-        texts.push({id:stableId("legacy-text",graphicUnit,m[1]),symbolUnitId:graphicUnit,kind:m[1]==="0"?"Reference":"Value",text:m[2],position:point(legacyToMillimeters(m[4]),legacyToMillimeters(m[5]))!,size:legacyToMillimeters(m[6]),rotation:m[3]==="V"?"90":"0",align:m[8]==="L"?"start":m[8]==="R"?"end":"middle"});
+        const layout=legacyFieldLayout(Number(m[4]),Number(m[5]),originX,originY,matrix,m[3]==="V",m[8]);
+        texts.push({id:stableId("legacy-text",graphicUnit,m[1]),symbolUnitId:graphicUnit,kind:m[1]==="0"?"Reference":"Value",text:m[2],position:point(legacyToMillimeters(layout.x),legacyToMillimeters(layout.y))!,size:legacyToMillimeters(m[6]),rotation:layout.rotation,align:layout.align});
       }
       if (isPowerSymbol) {
         const powerPin = definition?.pins.find((pinDefinition) => pinDefinition.unit === 0 || pinDefinition.unit === unit);
@@ -739,13 +741,14 @@ function parseLegacySchematic(
           ? transformLegacyPin(powerPin)
           : [legacyToMillimeters(originX), legacyToMillimeters(originY)];
         const valueField=block.find(l=>/^F\s+1\s/.test(l))?.match(/^F\s+1\s+"(?:\\.|[^"\\])*"\s+([HV])\s+(-?\d+)\s+(-?\d+)\s+(\d+)/);
+        const fieldLayout=valueField?legacyFieldLayout(Number(valueField[2]),Number(valueField[3]),originX,originY,matrix,valueField[1]==="V","C"):undefined;
         labels.push({
           id: stableId("label", schematicId, nativeId, "power"),
           name: value || libraryId.replace(/^.*power[:_]/i, "") || reference,
           kind: "power",
-          textPosition:valueField?point(legacyToMillimeters(valueField[2]),legacyToMillimeters(valueField[3])):undefined,
+          textPosition:fieldLayout?point(legacyToMillimeters(fieldLayout.x),legacyToMillimeters(fieldLayout.y)):undefined,
           size:valueField?legacyToMillimeters(valueField[4]):undefined,
-          rotation:valueField?.[1]==="V"?"90":"0",
+          rotation:fieldLayout?.rotation??"0",
           position: point(x, y)!,
           sourceRef: ref,
         });
@@ -846,7 +849,7 @@ function parseLegacySchematic(
         id: stableId("label", schematicId, nativeId),
         name: lines[index + 1].trim(),
         kind,
-        rotation: String([180,90,0,270][Number(line.trim().split(/\s+/)[4])]??0),
+        rotation: String(legacyLabelRotation(kind,Number(line.trim().split(/\s+/)[4]))),
         size:legacyToMillimeters(line.trim().split(/\s+/)[5]??50),
         shape:({Input:"input",Output:"output",BiDi:"bidirectional",3:"tri_state",Passive:"passive"} as Record<string,string>)[line.trim().split(/\s+/)[6]]??"passive",
         position: point(legacyToMillimeters(labelMatch[2]), legacyToMillimeters(labelMatch[3]))!,

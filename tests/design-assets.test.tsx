@@ -5,7 +5,7 @@ import { extractDesignAssets,identify,mergeAssets } from '../lib/design-assets/e
 import { fingerprint,footprintFile,parse,symbolDefinition,symbolFile } from '../lib/design-assets/kicad';
 import { validateAsset } from '../lib/design-assets/storage';
 import { checkOfficial,officialTarget } from '../lib/design-assets/official';
-import { sha256 } from '../lib/eda/util';
+import { sha256,numericString } from '../lib/eda/util';
 const enc=new TextEncoder();
 const symbol='(symbol "Custom:Chip" (property "Reference" "U") (symbol "Chip_0_1" (rectangle (start -2 -2) (end 2 2) (stroke (width .1) (type default)) (fill (type none)))) (symbol "Chip_1_1" (pin input line (at -4 0 0) (length 2) (name "IN") (number "1"))))';
 function fixture(mpn=true){return [{path:'project.kicad_sch',bytes:enc.encode(`(kicad_sch (version 20250114) (lib_symbols ${symbol}) ${[1,2].map(n=>`(symbol (lib_id "Custom:Chip") (at ${20*n} 30 0) (uuid "s${n}") (unit 1) (property "Reference" "U${n}") (property "Value" "CHIP") ${mpn?'(property "MPN" "ABC-123") (property "Manufacturer" "Acme")':''} (property "Footprint" "Custom:FP"))`).join(' ')})`)},{path:'project.kicad_pcb',bytes:enc.encode(`(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal) (31 "B.Cu" signal)) ${[1,2].map(n=>`(footprint "Custom:FP" (layer "F.Cu") (at ${n*20} 30 ${n===1?0:90}) (uuid "f${n}") (property "Reference" "U${n}" (at 0 -2 ${n===1?0:90}) (layer "F.SilkS")) (property "Value" "CHIP" (at 0 2 ${n===1?0:90}) (layer "F.Fab")) (pad "1" smd rect (at 1 0 ${n===1?0:90}) (size 1 2) (layers "F.Cu" "F.Paste" "F.Mask") (net 1 "N${n}") (uuid "pad${n}")) (model "model.step" (offset (xyz 0 0 0)) (scale (xyz 1 1 1)) (rotate (xyz 0 0 0))))`).join(' ')})`)},{path:'model.step',bytes:enc.encode('ISO-10303-21;\nEND-ISO-10303-21;')}];}
@@ -96,3 +96,30 @@ test('missing local 3D reference resolves a pinned official model for preview',a
  globalThis.fetch=async(input)=>{calls.push(String(input));return String(input).includes('?')?new Response('ISO-10303-21;\nEND-ISO-10303-21;'):Response.json({results:[{status:'found',revision:'a'.repeat(40)}]});};
  try{const assets=await extractDesignAssets(await parseEdaProject(fixture()),fixture());const model=assets.find(a=>a.kind==='model')!;const file=await candidateFile({...model,file:undefined,fileHash:undefined,official:undefined});assert.match(new TextDecoder().decode(file.bytes),/^ISO-10303-21;/);assert.equal(calls.length,2);assert.ok(calls[1].includes('revision='+'a'.repeat(40)));}finally{globalThis.fetch=original;}
 });
+
+test('library gallery renders three slots, pin names, centered pads and clears a failed replacement',async()=>{
+ const {JSDOM}=await import('jsdom');const {act}=await import('react');const {createRoot}=await import('react-dom/client');
+ const {DesignAssetGallery}=await import('../components/DesignAssetGallery');
+ const dom=new JSDOM('<div id="root"></div>');Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+ const inputs=fixture(),assets=(await extractDesignAssets(await parseEdaProject(inputs),inputs)).filter(a=>a.kind!=='model');
+ const root=createRoot(document.getElementById('root')!);
+ const settle=async()=>{for(let i=0;i<80&&!document.querySelector('.schematic-source-text');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});};
+ try{
+  await act(async()=>root.render(<DesignAssetGallery assets={assets}/>));await settle();
+  assert.equal(document.querySelectorAll('.design-gallery-column').length,3);
+  assert.match(document.querySelector('.schematic-canvas')!.textContent!,/IN/);
+  assert.match(document.querySelector('.design-preview-model')!.textContent!,/暂无3D 模型/);
+  assert.equal(document.querySelector('.pcb-pad text')!.getAttribute('text-anchor'),'middle');
+  assert.ok(document.querySelector('.pcb-source-graphics'),'standalone footprints must have a preview origin');
+  assert.equal(document.querySelector('.pcb-canvas svg')!.getAttribute('viewBox'),'0 0 720 720');
+  const symbolAsset=assets.find(a=>a.kind==='symbol')!;
+  await act(async()=>root.render(<DesignAssetGallery assets={[{...symbolAsset,file:undefined,fileHash:undefined,official:undefined}]}/>));
+  for(let i=0;i<30&&!document.querySelector('[role="alert"]');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+  assert.ok(document.querySelector('[role="alert"]'));
+  assert.equal(document.querySelector('.schematic-canvas'),null,'failed replacement must not retain old symbol');
+ }finally{await act(async()=>root.unmount());dom.window.close();}
+});
+
+ test('source decimal pad dimensions retain leading-dot and exponent values',()=>{
+  assert.equal(numericString('.65'),'.65');assert.equal(numericString('-.125'),'-.125');assert.equal(numericString('1e-3'),'1e-3');assert.equal(numericString('bad'),'0');
+ });

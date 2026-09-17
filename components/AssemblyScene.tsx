@@ -5,7 +5,7 @@ import { validateVrml } from "../lib/models/assets";
 import { convertStep } from "../lib/models/step-pool";
 import { modelCacheForAsset } from "../lib/models/model-cache";
 import { useSceneAnimation } from "./useSceneAnimation";
-export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?:boolean }) {
+export function AssemblyScene({ asset,active=true,library=false }: { asset: InputAsset;active?:boolean;library?:boolean }) {
   const host = useRef<HTMLDivElement>(null),
     reset = useRef(() => {});
   const [status, setStatus] = useState("正在加载实体模型…");
@@ -65,7 +65,7 @@ export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?
         return;
       }
       const scene = new T.Scene();
-      scene.background = new T.Color("#dde5df");
+      scene.background = new T.Color(library ? "#dcf3fb" : "#dde5df");
       scene.add(group);
       scene.add(new T.HemisphereLight(0xffffff, 0x66776d, 3));
       const light = new T.DirectionalLight(0xffffff, 2);
@@ -82,6 +82,7 @@ export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?
       controls.update();
       controls.saveState();
       reset.current = () => controls.reset();
+      const modelRadius = size.length() * 50 / extent;
       const observer = new ResizeObserver(() => {
         if (!host.current) return;
         const w = host.current.clientWidth,
@@ -90,6 +91,12 @@ export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?
         renderer.setSize(w, h);
         camera.aspect = w / Math.max(h, 1);
         camera.updateProjectionMatrix();
+        if(library){
+          const vertical = camera.fov * Math.PI / 360;
+          const halfAngle = Math.min(vertical, Math.atan(Math.tan(vertical)*camera.aspect));
+          camera.position.copy(camera.position.clone().sub(controls.target).normalize().multiplyScalar(modelRadius / Math.sin(halfAngle) * 1.15).add(controls.target));
+          controls.update();controls.saveState();
+        }
       });
       observer.observe(host.current);
       const stopAnimation=animate(renderer,() => {
@@ -118,9 +125,9 @@ export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?
       abort.abort();
       dispose();
     };
-  }, [asset,animate]);
+  }, [asset,animate,library]);
   return (
-    <div>
+    <div className={library ? "library-model" : undefined}>
       <div className="viewer-toolbar">
         <span role="status">{status}</span>
         <button onClick={() => reset.current()}>重置视角</button>
@@ -128,7 +135,7 @@ export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?
       <div
         ref={host}
         aria-label="实体器件模型视图"
-        style={{ height: 600, width: "100%" }}
+        style={{ height: library ? undefined : 600, aspectRatio: library ? "1" : undefined, width: "100%" }}
       />
     </div>
   );

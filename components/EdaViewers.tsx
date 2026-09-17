@@ -50,13 +50,13 @@ function boundsOf(points: Array<NumericPoint | undefined>): Bounds | undefined {
   return { minX: minX - width * 0.04, minY: minY - height * 0.04, maxX: maxX + width * 0.04, maxY: maxY + height * 0.04 };
 }
 
-function projector(bounds: Bounds, zoom: number, maxScale = Infinity) {
+function projector(bounds: Bounds, zoom: number, maxScale = Infinity, viewportWidth = VIEW_WIDTH) {
   const width = Math.max(bounds.maxX - bounds.minX, 1);
   const height = Math.max(bounds.maxY - bounds.minY, 1);
-  const scale = Math.min((VIEW_WIDTH - VIEW_PADDING * 2) / width, (VIEW_HEIGHT - VIEW_PADDING * 2) / height, maxScale) * zoom;
+  const scale = Math.min((viewportWidth - VIEW_PADDING * 2) / width, (VIEW_HEIGHT - VIEW_PADDING * 2) / height, maxScale) * zoom;
   const contentWidth = width * scale;
   const contentHeight = height * scale;
-  const offsetX = (VIEW_WIDTH - contentWidth) / 2;
+  const offsetX = (viewportWidth - contentWidth) / 2;
   const offsetY = (VIEW_HEIGHT - contentHeight) / 2;
   return (value: NumericPoint) => ({
     x: offsetX + (value.x - bounds.minX) * scale,
@@ -105,6 +105,7 @@ function ViewerToolbar({
 }
 
 export function SchematicViewer({ bundle, library = false }: { bundle: CanonicalIrBundle; library?: boolean }) {
+  const viewWidth = library ? VIEW_HEIGHT : VIEW_WIDTH;
   const [documentIndex, setDocumentIndex] = useState(0);
   const [showPinNumbers,setShowPinNumbers] = useState(library);
   const [zoom, setZoom] = useState(1);
@@ -118,7 +119,7 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = svg.getBoundingClientRect();
-      const scale = Math.min(rect.width/VIEW_WIDTH,rect.height/VIEW_HEIGHT);
+      const scale = Math.min(rect.width/viewWidth,rect.height/VIEW_HEIGHT);
       if (!scale) return;
       const x = (event.clientX-rect.left-rect.width/2)/scale;
       const y = (event.clientY-rect.top-rect.height/2)/scale;
@@ -128,7 +129,7 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
     };
     svg.addEventListener("wheel",wheel,{passive:false});
     return () => svg.removeEventListener("wheel",wheel);
-  },[zoom,bundle,documentIndex]);
+  },[zoom,bundle,documentIndex,viewWidth]);
   const [selectedNetId, setSelectedNetId] = useState<string | null>(null);
   const schematic = bundle.schematics[Math.min(documentIndex, Math.max(bundle.schematics.length - 1, 0))];
   const partsById = useMemo(() => new Map(bundle.parts.map((part) => [part.id, part])), [bundle.parts]);
@@ -146,13 +147,13 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
     ];
     const bounds = !library && schematic.page ? {minX:0,minY:0,maxX:schematic.page.width,maxY:schematic.page.height} : boundsOf(points);
     if (!bounds) return undefined;
-    const project = projector(bounds, zoom, library ? 32 : Infinity);
+    const project = projector(bounds, zoom, library ? 32 : Infinity, viewWidth);
     const wireNet = new Map<string, string>();
     for (const net of bundle.nets.filter((net) => net.domain === "schematic_logical")) {
       for (const segmentId of net.segmentIds) wireNet.set(segmentId, net.id);
     }
     return { bounds, project, wireNet };
-  }, [bundle.nets, schematic, zoom, library]);
+  }, [bundle.nets, schematic, zoom, library, viewWidth]);
 
   if (!schematic || !geometry) return <EmptyViewer kind="原理图" format={bundle.project.sourceFormat} />;
   const documentNets = bundle.nets.filter((net) => net.domain === "schematic_logical" && net.sourceRefs.some((ref) => schematic.sourceRefs.some((source) => source.path === ref.path)));
@@ -169,11 +170,11 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
       </ViewerToolbar>
       <div className="viewer-body">
         <div className="viewer-canvas schematic-canvas">
-          <svg ref={svgRef} tabIndex={0} onPointerDown={event=>{if(event.button!==0 && event.button!==1)return;event.preventDefault();event.currentTarget.setPointerCapture?.(event.pointerId);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY};}} onPointerMove={event=>{const d=drag.current;if(!d || d.id!==event.pointerId)return;const r=event.currentTarget.getBoundingClientRect();const scale=Math.min(r.width/VIEW_WIDTH,r.height/VIEW_HEIGHT);if(scale) setPan(p=>({x:p.x+(event.clientX-d.x)/scale,y:p.y+(event.clientY-d.y)/scale}));drag.current={id:d.id,x:event.clientX,y:event.clientY};}} onPointerUp={()=>{drag.current=null;}} onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}} onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(delta[event.key]){event.preventDefault();const [x,y]=delta[event.key];setPan(p=>({x:p.x+x,y:p.y+y}));}if(event.key==="0")resetView();}} role="img" aria-label={`${schematic.name}（拖动平移，滚轮缩放） 原理图在线预览`} viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
+          <svg ref={svgRef} tabIndex={0} onPointerDown={event=>{if(event.button!==0 && event.button!==1)return;event.preventDefault();event.currentTarget.setPointerCapture?.(event.pointerId);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY};}} onPointerMove={event=>{const d=drag.current;if(!d || d.id!==event.pointerId)return;const r=event.currentTarget.getBoundingClientRect();const scale=Math.min(r.width/viewWidth,r.height/VIEW_HEIGHT);if(scale) setPan(p=>({x:p.x+(event.clientX-d.x)/scale,y:p.y+(event.clientY-d.y)/scale}));drag.current={id:d.id,x:event.clientX,y:event.clientY};}} onPointerUp={()=>{drag.current=null;}} onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}} onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(delta[event.key]){event.preventDefault();const [x,y]=delta[event.key];setPan(p=>({x:p.x+x,y:p.y+y}));}if(event.key==="0")resetView();}} role="img" aria-label={`${schematic.name}（拖动平移，滚轮缩放） 原理图在线预览`} viewBox={`0 0 ${viewWidth} ${VIEW_HEIGHT}`}>
             <defs>
               <pattern id={`schematic-grid-${documentIndex}`} width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" stroke="#dce6df" strokeWidth="1" /></pattern>
             </defs>
-            <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill={`url(#schematic-grid-${documentIndex})`} />
+            {!library && <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill={`url(#schematic-grid-${documentIndex})`} />}
             <g transform={`translate(${pan.x} ${pan.y})`}>
             {!library && schematic.page && (()=>{const a=geometry.project({x:10,y:10}),b=geometry.project({x:schematic.page.width-10,y:schematic.page.height-10});return <g className="schematic-page-frame" fill="none" stroke="#88734a" strokeWidth="1"><rect x={a.x} y={a.y} width={b.x-a.x} height={b.y-a.y}/><text x={b.x-8} y={b.y-8} textAnchor="end" fill="#69786e" stroke="none" fontSize="11">{schematic.page.title || schematic.name}</text></g>;})()}
             {(schematic.sheetBoxes ?? []).map(sheet => {
@@ -189,7 +190,7 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
                 {sheet.pins.map((pin,i) => {const p=geometry.project(numericPoint(pin.position)!); const right=p.x>(a.x+b.x)/2;return <g key={i}><circle cx={p.x} cy={p.y} r="3" fill="#247849"/><text x={p.x+(right?-7:7)} y={p.y-4} textAnchor={right?"end":"start"} fontSize="10">{pin.name}</text></g>;})}
               </g>;
             })}
-            {(schematic.graphics ?? []).map(g => <polyline key={g.id} points={g.points.map(p => geometry.project(numericPoint(p)!)).map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#9c3d35" strokeWidth="1.5" />)}
+            {(schematic.graphics ?? []).map(g => <polyline key={g.id} points={g.points.map(p => geometry.project(numericPoint(p)!)).map(p => `${p.x},${p.y}`).join(" ")} fill="none" stroke={library ? (schematic.pins.some(pin=>g.points.length===2 && pin.position.x===g.points[0].x && pin.position.y===g.points[0].y) ? "#488aff" : "#aaaeb3") : "#9c3d35"} strokeWidth={library ? 2 : 1.5} />)}
             {schematic.wires.map((wire) => {
               const points = wire.points.map(numericPoint).filter((value): value is NumericPoint => Boolean(value)).map(geometry.project);
               const netId = geometry.wireNet.get(wire.id);
@@ -210,8 +211,8 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
               const part = partsById.get(pins[0].partId);
               return <g className="schematic-symbol" key={unitId}>{!(schematic.graphics ?? []).some(g => g.symbolUnitId === unitId) && <rect x={minX} y={minY} width={width} height={height} rx="3" />}<text x={minX + 7} y={minY + 14}>{part?.reference ?? pins[0].reference}</text><text className="symbol-value" x={minX + 7} y={minY + 27}>{part?.value ?? ""}</text></g>;
             })}
-            {(schematic.texts ?? []).map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
-            {showPinNumbers && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
+            {(schematic.texts ?? []).filter(t=>showPinNumbers || t.kind!=="PinNumber").map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
+            {showPinNumbers && !schematic.texts?.some(t=>t.kind==="PinNumber") && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
             {schematic.junctions.map((junction) => { const p = geometry.project(numericPoint(junction.position)!); return <circle className="schematic-junction" cx={p.x} cy={p.y} r="4.5" key={junction.id} />; })}
             {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const angle=((Number(label.rotation??0)%360)+360)%360;const left=angle===180;
               if(label.kind==="global") {
@@ -307,6 +308,7 @@ function outlineElement(item: PcbIr["boardOutline"][number], project: (point: Nu
 }
 
 export function PcbViewer({ bundle, library = false }: { bundle: CanonicalIrBundle; library?: boolean }) {
+  const viewWidth = library ? VIEW_HEIGHT : VIEW_WIDTH;
   const [documentIndex, setDocumentIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [showLabels, setShowLabels] = useState(library);
@@ -315,7 +317,7 @@ export function PcbViewer({ bundle, library = false }: { bundle: CanonicalIrBund
   const pcb = bundle.pcbs[Math.min(documentIndex, Math.max(bundle.pcbs.length - 1, 0))];
   const bounds = pcb ? pcbBounds(pcb) : undefined;
   if (!pcb || !bounds) return <EmptyViewer kind="PCB" format={bundle.project.sourceFormat} />;
-  const project = projector(bounds, zoom, library ? 100 : Infinity);
+  const project = projector(bounds, zoom, library ? 100 : Infinity, viewWidth);
   const scale = project({x:1,y:0}).x-project({x:0,y:0}).x;
   const footprintById = new Map(pcb.footprints.map((footprint) => [footprint.id, footprint]));
   const isVisible = (layer?: string) => !layer || !hiddenLayers.has(layer);
@@ -329,13 +331,13 @@ export function PcbViewer({ bundle, library = false }: { bundle: CanonicalIrBund
           {bundle.pcbs.map((item, index) => <option value={index} key={item.id}>{item.name}</option>)}
         </select>}
       </ViewerToolbar>
-      {library && <div className="library-layers" aria-label="封装图层">{[...new Set(pcb.footprints.flatMap(f=>(f.graphics??[]).map(g=>g.layer)))].map(layer=><button type="button" key={layer} aria-pressed={isVisible(layer)} onClick={()=>toggleLayer(layer)}>{layer}</button>)}<span>焊盘 {pcb.pads.length} · 铜层红色 / 丝印白色 / 边界紫色 / 装配黄色</span></div>}
+      {library && <details className="library-layer-options"><summary>图层与颜色</summary><div className="library-layers" aria-label="封装图层">{[...new Set(pcb.footprints.flatMap(f=>(f.graphics??[]).map(g=>g.layer)))].map(layer=><button type="button" key={layer} aria-pressed={isVisible(layer)} onClick={()=>toggleLayer(layer)}>{layer}</button>)}<span>焊盘 {pcb.pads.length} · 铜层蓝色 / 丝印灰色 / 边界紫色 / 装配橙色</span></div></details>}
       <div className="viewer-body">
         <div className="viewer-canvas pcb-canvas">
-          <svg role="img" aria-label={`${pcb.name} PCB 二维在线预览`} viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}>
+          <svg role="img" aria-label={`${pcb.name} PCB 二维在线预览`} viewBox={`0 0 ${viewWidth} ${VIEW_HEIGHT}`}>
             <defs><pattern id={`pcb-grid-${documentIndex}`} width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#36574c" /></pattern></defs>
-            <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill="#10241f" />
-            <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill={`url(#pcb-grid-${documentIndex})`} opacity=".42" />
+            <rect width={viewWidth} height={VIEW_HEIGHT} fill={library ? "#ffffff" : "#10241f"} />
+            {!library && <rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill={`url(#pcb-grid-${documentIndex})`} opacity=".42" />}
             {pcb.boardOutline.map((item) => outlineElement(item, project))}
             {pcb.tracks.filter((track) => isVisible(track.layer)).map((track) => {
               const start = numericPoint(track.start); const end = numericPoint(track.end);
@@ -349,7 +351,7 @@ export function PcbViewer({ bundle, library = false }: { bundle: CanonicalIrBund
               const position = numericPoint(pad.position); if (!position) return null;
               const p = project(position); const sizeX = Math.max(Number(pad.size?.x ?? 1.2) * scale, .3); const sizeY = Math.max(Number(pad.size?.y ?? 1.2) * scale, .3);
               const selected = !selectedNetId || pad.netId === selectedNetId;
-              return <g className={`pcb-pad ${selected ? "" : "dimmed"}`} key={pad.id}><title>{footprintById.get(pad.footprintId ?? "")?.reference}.{pad.number} · {pad.netName}</title><g transform={`rotate(${-Number(pad.rotation ?? 0)} ${p.x} ${p.y})`}><rect x={p.x - sizeX / 2} y={p.y - sizeY / 2} width={sizeX} height={sizeY} rx={/circle|oval/i.test(pad.shape) ? Math.min(sizeX, sizeY) / 2 : pad.shape === "roundrect" ? Math.min(sizeX,sizeY)*.2 : 0} />{pad.drill && <ellipse cx={p.x} cy={p.y} rx={Number(pad.drill.x)*scale/2} ry={Number(pad.drill.y)*scale/2} fill="#10241f" />}</g>{(showLabels || !!selectedNetId && selected) && <text x={p.x + sizeX / 2 + 2} y={p.y + 3}>{library ? pad.number : `${footprintById.get(pad.footprintId ?? "")?.reference}.${pad.number}`}</text>}</g>;
+              return <g className={`pcb-pad ${selected ? "" : "dimmed"}`} key={pad.id}><title>{`${footprintById.get(pad.footprintId ?? "")?.reference ?? ""}.${pad.number} · ${pad.netName ?? ""}`}</title><g transform={`rotate(${-Number(pad.rotation ?? 0)} ${p.x} ${p.y})`}><rect x={p.x - sizeX / 2} y={p.y - sizeY / 2} width={sizeX} height={sizeY} rx={/circle|oval/i.test(pad.shape) ? Math.min(sizeX, sizeY) / 2 : pad.shape === "roundrect" ? Math.min(sizeX,sizeY)*.2 : 0} />{pad.drill && <ellipse cx={p.x} cy={p.y} rx={Number(pad.drill.x)*scale/2} ry={Number(pad.drill.y)*scale/2} fill={library ? "#ffffff" : "#10241f"} />}</g>{(showLabels || !!selectedNetId && selected) && <text x={library ? p.x : p.x + sizeX / 2 + 2} y={library ? p.y : p.y + 3} textAnchor={library ? "middle" : undefined} dominantBaseline={library ? "central" : undefined} style={library ? {fontSize:Math.max(1,Math.min(sizeY*.65,sizeX/(Math.max(pad.number.length,1)*.7),28)),fill:"#fff5a3"} : undefined}>{library ? pad.number : `${footprintById.get(pad.footprintId ?? "")?.reference}.${pad.number}`}</text>}</g>;
             })}
             {pcb.vias.map((via) => { const position = numericPoint(via.position); if (!position) return null; const p = project(position); return <g className={`pcb-via ${selectedNetId && via.netId !== selectedNetId ? "dimmed" : ""}`} key={via.id}><circle cx={p.x} cy={p.y} r={Math.max(Number(via.size ?? 0.8) * scale / 2, .2)} /><circle cx={p.x} cy={p.y} r={Math.max(Number(via.drill ?? 0.35) * scale / 2, .1)} /></g>; })}
             {pcb.footprints.map(footprint => {const position=numericPoint(footprint.position);if(!position)return null;const p=project(position);return <g className="pcb-source-graphics" key={footprint.id} transform={`translate(${p.x} ${p.y}) rotate(${-Number(footprint.rotation)})`}>{(footprint.graphics ?? []).filter(g=>isVisible(g.layer)&&/SilkS|Fab|CrtYd/.test(g.layer)).map(g=><g key={g.id} data-layer={g.layer}>{outlineElement(g,v=>({x:v.x*scale,y:v.y*scale}))}</g>)}</g>;})}

@@ -73,7 +73,7 @@ export function withoutExtension(path: string): string {
 }
 
 export function numericString(value: unknown, fallback = "0"): string {
-  if (typeof value === "string" && /^[-+]?\d+(\.\d+)?$/.test(value)) return value;
+  if (typeof value === "string" && /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(value)) return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return fallback;
 }

@@ -541,23 +541,39 @@ td code { color: #718078; font-size: 8px; }
 .design-assets td code,.design-assets td small { display:block; overflow-wrap:anywhere; margin-top:6px; }
 .design-assets td:first-child { max-width:380px; }
 .design-error { color:#a72c2c!important; white-space:pre-wrap; }
-.design-comparison { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
-.design-preview { min-width:0; border:1px solid #cbd8d0; padding:12px; border-radius:10px; overflow:hidden; }
-.design-preview h4 { overflow-wrap:anywhere; }
-@media(max-width:1000px){ .design-comparison { grid-template-columns:1fr; } }
-
-/* Library previews fit their card; project canvas minimum widths do not apply. */
-.design-preview .library-viewer .viewer-body { display:block; min-height:0; }
-.design-preview .library-viewer .viewer-canvas { overflow:hidden; }
-.design-preview .library-viewer .viewer-canvas svg { min-width:0; width:100%; height:360px; max-height:55vh; }
-.design-preview .library-viewer .viewer-toolbar { flex-wrap:wrap; gap:8px; }
-.design-preview .library-viewer .viewer-tools { flex-wrap:wrap; }
+/* Isolated, square component-library cards. */
+.design-comparison { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; align-items:start; }
+.design-gallery { margin:24px 0; padding:20px; background:#f8faf9; border:1px solid #e0e8e3; border-radius:12px; }
+.design-gallery-column,.design-preview { min-width:0; }
+.design-preview { overflow:hidden; }
+.design-preview h4 { display:flex; align-items:center; gap:12px; margin:0 0 16px; font-size:20px; color:#17241d; }
+.design-preview h4 svg { width:30px; height:30px; color:#4bb765; flex-shrink:0; }
+.design-preview-name { height:22px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; color:#486252; }
+.design-preview > small { display:block; height:26px; color:#829088; font-size:11px; }
+.design-preview .library-viewer { display:flex; flex-direction:column; border:1px solid #e1e5e2; border-radius:0; overflow:hidden; background:white; box-shadow:0 3px 12px #1831260a; }
+.design-preview .library-viewer .viewer-body { display:block; min-height:0; order:0; }
+.design-preview .library-viewer .viewer-canvas { overflow:hidden; background:#fff; }
+.design-preview .library-viewer .viewer-canvas svg { display:block; min-width:0; width:100%; height:auto; aspect-ratio:1; max-height:none; }
+.design-preview .library-viewer .viewer-toolbar { order:1; flex-wrap:wrap; gap:6px; padding:8px; border-top:1px solid #eef1ef; background:#fff; }
+.design-preview .library-viewer .viewer-toolbar > div:first-child { display:none; }
+.design-preview .library-viewer .viewer-tools { flex-wrap:wrap; gap:6px; }
+.design-preview .library-viewer .viewer-tools button { font-size:11px; padding:5px; }
 .design-preview .library-viewer .viewer-status { display:none; }
-.design-preview .library-viewer .schematic-canvas { background:#fffff5; }
-.design-preview .library-viewer .pcb-pad > g > rect { fill:#d94d45; }
-.design-preview .library-viewer .pcb-source-graphics .pcb-outline { stroke:#e5e5df; }
-
-.library-layers { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; font-size:12px; }
+.design-preview .library-viewer .pcb-pad > g > rect { fill:#488aff; stroke:none; }
+.design-preview .library-viewer .pcb-source-graphics .pcb-outline { stroke:#aeb2b4; stroke-width:2; }
+.design-preview .library-viewer [data-layer$="CrtYd"] .pcb-outline { stroke:#e734e9; }
+.design-preview .library-viewer [data-layer$="Fab"] .pcb-outline { stroke:#ffa52e; }
+.library-layer-options { order:2; padding:8px; font-size:12px; border-top:1px solid #eef1ef; }
+.library-layers { display:flex; flex-wrap:wrap; gap:8px; padding-top:8px; font-size:11px; }
 .library-layers button[aria-pressed="false"] { opacity:.5; }
-.design-preview .library-viewer [data-layer$="CrtYd"] .pcb-outline { stroke:#d46fe6; }
-.design-preview .library-viewer [data-layer$="Fab"] .pcb-outline { stroke:#d4ce65; }
+.design-preview .library-model { display:flex; flex-direction:column; background:#dcf3fb; border:1px solid #d4eaf2; }
+.design-preview .library-model .viewer-toolbar { order:1; background:white; flex-wrap:wrap; font-size:11px; padding:8px; }
+.design-preview .library-model canvas { display:block; }
+.design-preview-empty { aspect-ratio:1; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:12px; border:1px dashed #d1ddd5; background:#fff; color:#73877a; }
+.design-preview-model .design-preview-empty { background:#dcf3fb; }
+.design-preview-empty span { font-size:12px; }
+.design-preview > details { margin-top:12px; font-size:12px; }
+.design-variant,.design-unit { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; font-size:12px; }
+.design-variant select { max-width:100%; min-width:0; }
+.design-gallery-note { color:#718477; font-size:12px; margin-top:16px; }
+@media(max-width:850px){ .design-comparison { grid-template-columns:1fr; } .design-gallery { padding:12px; } }

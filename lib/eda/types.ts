@@ -275,9 +275,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.5.1";
+    agentVersion: "1.5.2";
     adapterId: string;
-    adapterVersion: "1.5.1";
+    adapterVersion: "1.5.2";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

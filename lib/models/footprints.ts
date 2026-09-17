@@ -1,6 +1,8 @@
 import type {InputAsset,PcbIr} from '../eda/types';
 import {decompress} from 'fzstd';
+import {altiumEmbeddedModels} from '../eda/altium-models';
 export function embeddedModels(source:InputAsset):InputAsset[]{
+ if(/\.pcbdoc$/i.test(source.path))return altiumEmbeddedModels(source);
  const text=new TextDecoder().decode(source.bytes),result:InputAsset[]=[];
  // KiCad embeds Base64-encoded Zstandard frames between pipe delimiters.
  const expression=/\(file\s+\(name\s+"([^"\n]+)"\)\s+\(type\s+[^)]+\)\s+\(data\s+\|([A-Za-z0-9+/=\s]+)\|\s*\)/g;
@@ -27,7 +29,7 @@ export function embeddedModels(source:InputAsset):InputAsset[]{
 function normalize(path:string){const out:string[]=[];for(const p of path.replace(/\\/g,'/').split('/')){if(p==='..')out.pop();else if(p&&p!=='.')out.push(p);}return out.join('/');}
 export function resolveModelPath(path:string,pcb:PcbIr,assets:InputAsset[]):{asset?:InputAsset;official?:string}{
  const dir=(pcb.sourceRefs[0]?.path??'').replace(/[^/]+$/,'');
- if(path.startsWith('kicad-embed://'))return {asset:assets.find(a=>a.path===path)};
+ if(path.startsWith('kicad-embed://')||path.startsWith('altium-embed://'))return {asset:assets.find(a=>a.path===path)};
  const official=path.match(/^\$\{(?:KICAD(?:\d+)?_3DMODEL_DIR|KISYS3DMOD)\}\/([^/]+\.3dshapes\/.+)$/)?.[1];
  if(official)return {asset:assets.find(a=>a.path.endsWith('/'+official)||a.path===official),official};
  const local=normalize(path.replace(/^\$\{KIPRJMOD\}\//,dir));

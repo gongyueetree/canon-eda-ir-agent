@@ -64,7 +64,7 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
         const result=await loadFootprintModels(pcb,assets,abort.signal,text=>{if(!cancelled)setModelStatus(text);});
         result.group.traverse(o=>{if(o instanceof THREE.Mesh){resources.push(o.geometry);resources.push(...(Array.isArray(o.material)?o.material:[o.material]));}});
         if(cancelled){cleanup();return;}
-        group.add(result.group);setModelStatus(result.total === 0 ? `已生成 PCB 板体；当前解析结果没有器件模型引用。${pcb.sourceRefs.some(r=>/\.pcbdoc$/i.test(r.path)) ? "AD 内嵌器件模型尚未接入。" : ""}` : `器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.missing);
+        group.add(result.group);setModelStatus(result.total === 0 ? `已生成 PCB 板体；当前解析结果没有器件模型引用。${pcb.sourceRefs.some(r=>/\.pcbdoc$/i.test(r.path)) ? "请重新导入 AD 源工程以读取内嵌模型。" : ""}` : `器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.missing);
       }
       if(cancelled){cleanup();return;}
       const box=new THREE.Box3().setFromObject(group), center=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());group.position.sub(center);
@@ -80,5 +80,5 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
     draw().catch(e=>{cleanup();if(!cancelled)setError(e instanceof Error?e.message:"3D 初始化失败；请检查浏览器 WebGL 支持。");});
     return()=>{cancelled=true;abort.abort();cleanup();};
   },[pcb,assets,components]);
-  return <div style={{position:"relative"}}><button type="button" onClick={()=>reset.current()} style={{position:"absolute",top:12,right:12,zIndex:1}}>重置视角</button>{error && <p role="alert" style={{padding:24}}>{error}</p>}<p role="status">{modelStatus}</p>{missing.length>0&&<details><summary>{missing.length} 个模型未加载（查看原因）</summary><ul>{missing.map((m,i)=><li key={i}>{m}</li>)}</ul></details>}<div ref={host} aria-label="PCB 三维视图" style={{height:600,width:"100%",display:error?"none":"block"}}/></div>;
+  return <div><div className="board-scene-toolbar" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,padding:"12px 20px",borderBottom:"1px solid #dde5df"}}><p role="status" style={{margin:0,fontSize:13,lineHeight:1.5,flex:1,minWidth:0}}>{modelStatus || "正在准备 3D 视图…"}</p><button type="button" onClick={()=>reset.current()} style={{flexShrink:0,padding:"8px 14px",border:"1px solid #cbd5cf",borderRadius:8,background:"#fff",fontSize:13,cursor:"pointer"}}>重置视角</button></div>{error && <p role="alert" style={{padding:24}}>{error}</p>}{missing.length>0&&<details><summary>{missing.length} 个模型未加载（查看原因）</summary><ul>{missing.map((m,i)=><li key={i}>{m}</li>)}</ul></details>}<div ref={host} aria-label="PCB 三维视图" style={{height:600,width:"100%",display:error?"none":"block"}}/></div>;
 }

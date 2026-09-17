@@ -1,4 +1,6 @@
 import * as CFB from "cfb";
+import { altiumBlocks, altiumProperties } from "./altium-records";
+import { attachAltiumModels } from "./altium-models";
 import { buildConnectivity, type KicadParseOutput } from "./kicad";
 import type { IrPoint, PartIr, PcbIr, SchematicIr, SourceAsset } from "./types";
 import { diagnostic, sourceRef, stableId, withoutExtension } from "./util";
@@ -11,32 +13,7 @@ const pt = (x: number, y: number): IrPoint => ({ x: String(Number(x.toFixed(7)))
 const coord = (p: Props, k: string) => (num(p, k) + num(p, `${k}_FRAC`) / 100000) * .254;
 const pos = (p: Props, x = "LOCATION.X", y = "LOCATION.Y") => pt(coord(p, x), -coord(p, y));
 const decoder = new TextDecoder("windows-1252");
-export function altiumProperties(data: Uint8Array): Props {
-  const result: Props = Object.create(null);
-  for (const entry of decoder.decode(data).replace(/\0+$/, "").split("|")) {
-    const i = entry.indexOf("=");
-    if (i > 0) result[entry.slice(0, i).toUpperCase()] = entry.slice(i + 1);
-  }
-  // UTF-8 properties override their legacy code-page equivalents.
-  for (const entry of new TextDecoder().decode(data).replace(/\0+$/, "").split("|")) {
-    const i = entry.indexOf("=");
-    if (entry.startsWith("%UTF8%") && i > 6) result[entry.slice(6, i).toUpperCase()] = entry.slice(i + 1);
-  }
-  return result;
-}
-export function altiumBlocks(data: Uint8Array): Uint8Array[] {
-  const out: Uint8Array[] = [];
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  for (let offset = 0; offset < data.length;) {
-    if (offset + 4 > data.length || out.length >= 100000) throw new Error("Invalid or excessive AD records");
-    const size = view.getUint32(offset, true) & 0xffffff;
-    offset += 4;
-    if (!size || offset + size > data.length) throw new Error("Truncated AD record");
-    out.push(data.subarray(offset, offset + size)); offset += size;
-  }
-  return out;
-}
-
+export { altiumBlocks, altiumProperties } from "./altium-records";
 function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) {
   const records = altiumBlocks(data).slice(1).map(altiumProperties);
   const id = stableId("sch", asset.id), ref = sourceRef(asset.id, asset.relativePath);
@@ -148,8 +125,14 @@ function pcb(stream: (name: string) => Uint8Array, asset: SourceAsset, out: Kica
   binary("Vias6", 3, ([b], i) => { const v = read(b), net = nets[v.u(3)], vid = `${id}:via${i}`; result.vias.push({ id: vid, position: v.p(13), size: String(v.mm(21)), drill: String(v.mm(25)), layers: ["F.Cu", "B.Cu"], netId: net?.id, sourceRef: ref }); net?.endpoints.push({ id: `${vid}:ep`, type: "via", targetId: vid, identifier: {}, position: v.p(13) }); });
   const usedLayers = new Set([...result.pads.flatMap(p => p.layers), ...result.tracks.map(t => t.layer)]);
   result.layers = result.layers.filter(l => usedLayers.has(l.name));
+  try {
+    const models = attachAltiumModels(stream, result);
+    out.diagnostics.push(diagnostic("ALTIUM_3D_MODELS", `已关联 ${models.attached} 个 AD 内嵌模型引用；${models.skipped} 条 Body 未关联（外部模型、非封装 Body 或缺少模型）。实际加载状态见 3D 查看器。`, models.skipped ? "warning" : "information", "geometry", ref, "normalized"));
+  } catch (error) {
+    out.diagnostics.push(diagnostic("ALTIUM_3D_PARTIAL", `3D 模型记录解析失败：${error instanceof Error ? error.message : String(error)}。PCB 几何仍保留。`, "warning", "geometry", ref, "preserved"));
+  }
   out.pcbs.push(result); out.nets.push(...nets);
   const normalized = result.pads.length + result.tracks.length + result.footprints.length;
   out.normalized += normalized; out.recognized += normalized;
-  out.diagnostics.push(diagnostic("ALTIUM_PCB_PARTIAL", `AD PCB 已解析 ${result.footprints.length} 个封装、${result.pads.length} 个焊盘、${result.tracks.length} 条直线走线和 ${result.vias.length} 个过孔。圆弧板框采用采样近似；覆铜、圆弧走线、特殊焊盘、叠层、盲埋孔范围和规则尚未完整解析。内嵌 3D 模型尚未连接至封装，不显示为已加载。`, "warning", "unsupported", ref, "preserved"));
+  out.diagnostics.push(diagnostic("ALTIUM_PCB_PARTIAL", `AD PCB 已解析 ${result.footprints.length} 个封装、${result.pads.length} 个焊盘、${result.tracks.length} 条直线走线和 ${result.vias.length} 个过孔。圆弧板框采用采样近似；覆铜、圆弧走线、特殊焊盘、叠层、盲埋孔范围和规则尚未完整解析。内嵌 STEP 模型按 Body 记录关联，加载结果请查看 3D 页面。`, "warning", "unsupported", ref, "preserved"));
 }

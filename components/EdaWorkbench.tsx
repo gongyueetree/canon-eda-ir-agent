@@ -526,7 +526,7 @@ export default function EdaWorkbench() {
         </div>
         <div className="sidebar-footer">
           <div className={`db-state ${dbConfigured ? "online" : ""}`}><Database size={15} /><span>{dbConfigured ? "PostgreSQL 已连接" : "本地只读模式"}</span></div>
-          <small>Parser {bundle?.parser.adapterVersion ?? "1.5.1"} · IR 1.0.0</small>
+          <small>Parser {bundle?.parser.adapterVersion ?? "1.5.2"} · IR 1.0.0</small>
         </div>
       </aside>
 
@@ -589,7 +589,7 @@ export default function EdaWorkbench() {
                 <div className={`fidelity-seal ${bundle.fidelity.overallStatus}`}><CircleGauge size={21} /><div><small>FIDELITY</small><strong>{statusLabel(bundle.fidelity.overallStatus)}</strong></div></div>
               </div>
 
-              {String(bundle.parser.adapterVersion) !== "1.5.1" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始工程文件，使用当前解析器重新处理。</p>}
+              {String(bundle.parser.adapterVersion) !== "1.5.2" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始工程文件，使用当前解析器重新处理。</p>}
               <div className="result-tabs" role="tablist">
                 {resultTabs.map((tab) => <button role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)} key={tab.id}>{tab.label}{tab.count !== undefined && <span>{tab.count}</span>}</button>)}
               </div>

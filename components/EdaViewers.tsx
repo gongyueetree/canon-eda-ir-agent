@@ -356,13 +356,13 @@ export function PcbViewer({ bundle }: { bundle: CanonicalIrBundle }) {
   );
 }
 
-export function Board3DViewer({ bundle,assets=[] }: { bundle: CanonicalIrBundle;assets?:InputAsset[] }) {
+export function Board3DViewer({ bundle,assets=[],active=true }: { bundle: CanonicalIrBundle;assets?:InputAsset[];active?:boolean }) {
   const [index,setIndex]=useState(0),[choice,setChoice]=useState("auto");
   const pcb=bundle.pcbs[Math.min(index,Math.max(0,bundle.pcbs.length-1))];
   if(!pcb)return <EmptyViewer kind="3D PCB" format={bundle.project.sourceFormat}/>;
   const models=modelAssets(assets),assembly=boardAssembly(pcb,models);
   const selected=choice==="auto"?assembly:models.find(a=>a.path===choice);
-  return <article className="panel board-3d-panel"><div className="viewer-toolbar"><strong>PCB 3D · {pcb.name}</strong><select aria-label="选择 3D PCB 文档" value={index} onChange={e=>{setIndex(Number(e.target.value));setChoice("auto");}}>{bundle.pcbs.map((p,i)=><option key={p.id} value={i}>{p.name}</option>)}</select><select aria-label="选择实体模型" value={choice} onChange={e=>setChoice(e.target.value)}><option value="auto">{assembly?"工程装配实体（自动）":"PCB + 器件模型（自动）"}</option><option value="ir">仅 IR 板体 / 焊盘</option>{models.map(a=><option key={a.path} value={a.path}>模型文件：{a.path}</option>)}</select></div>{selected?<AssemblyScene key={selected.path} asset={selected}/>:<BoardScene key={`${pcb.id}-${choice}`} pcb={pcb} assets={assets} components={choice!=="ir"}/>}<div className="viewer-status">{selected?"显示源文件中的实体与颜色；装配模型可能与当前 PCB 版本不同，请核对导出时间。":"自动加载工程内模型、PCB 嵌入模型及 KiCad 官方库引用；缺失的自定义模型会列出原因。已保存的 JSON 需重新导入源工程以恢复模型数据。"}</div></article>;
+  return <article className="panel board-3d-panel"><div className="viewer-toolbar"><strong>PCB 3D · {pcb.name}</strong><select aria-label="选择 3D PCB 文档" value={index} onChange={e=>{setIndex(Number(e.target.value));setChoice("auto");}}>{bundle.pcbs.map((p,i)=><option key={p.id} value={i}>{p.name}</option>)}</select><select aria-label="选择实体模型" value={choice} onChange={e=>setChoice(e.target.value)}><option value="auto">{assembly?"工程装配实体（自动）":"PCB + 器件模型（自动）"}</option><option value="ir">仅 IR 板体 / 焊盘</option>{models.map(a=><option key={a.path} value={a.path}>模型文件：{a.path}</option>)}</select></div>{selected?<AssemblyScene key={selected.path} asset={selected} active={active}/>:<BoardScene key={`${pcb.id}-${choice}`} pcb={pcb} assets={assets} components={choice!=="ir"} active={active}/>}<div className="viewer-status">{selected?"显示源文件中的实体与颜色；装配模型可能与当前 PCB 版本不同，请核对导出时间。":"自动加载工程内模型、PCB 嵌入模型、KiCad 官方库及乐鑫官方库引用；缺失的自定义模型会列出原因。已保存的 JSON 需重新导入源工程以恢复模型数据。"}</div></article>;
 }
 
 type BomRow = {

@@ -3,14 +3,17 @@ import { useEffect, useRef, useState } from "react";
 import type { PcbIr, IrPoint, InputAsset } from "../lib/eda/types";
 import { arcPoints, type XY } from "../lib/eda/view-geometry";
 import { cleanBoardContours } from "../lib/models/board-contours";
+import { useSceneAnimation } from "./useSceneAnimation";
+import type { MissingModel } from "../lib/models/load-footprints";
 
 const EMPTY_ASSETS: InputAsset[] = [];
-export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { pcb: PcbIr; assets?: InputAsset[]; components?: boolean }) {
+export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true, active = true }: { pcb: PcbIr; assets?: InputAsset[]; components?: boolean; active?:boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const reset = useRef(() => {});
   const [error, setError] = useState("");
   const [modelStatus,setModelStatus] = useState("");
-  const [missing,setMissing] = useState<string[]>([]);
+  const [missing,setMissing] = useState<MissingModel[]>([]);
+  const animate=useSceneAnimation(active);
   useEffect(() => {
     const abort = new AbortController();
     let cancelled = false;
@@ -59,13 +62,6 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
         const geometry=new THREE.ShapeGeometry(shape);resources.push(geometry);
         for(const side of ["F.Cu","B.Cu"]){if(!pad.layers.includes(side)&&!pad.layers.includes("*.Cu"))continue;const mesh=new THREE.Mesh(geometry,gold);mesh.position.set(p.x,p.y,side==="F.Cu"?thickness+.015:-.015);mesh.rotation.z=Number(pad.rotation??0)*Math.PI/180;group.add(mesh);}
       }
-      if(components){
-        const {loadFootprintModels}=await import('../lib/models/load-footprints');
-        const result=await loadFootprintModels(pcb,assets,abort.signal,text=>{if(!cancelled)setModelStatus(text);});
-        result.group.traverse(o=>{if(o instanceof THREE.Mesh){resources.push(o.geometry);resources.push(...(Array.isArray(o.material)?o.material:[o.material]));}});
-        if(cancelled){cleanup();return;}
-        group.add(result.group);setModelStatus(result.total === 0 ? `已生成 PCB 板体；当前解析结果没有器件模型引用。${pcb.sourceRefs.some(r=>/\.pcbdoc$/i.test(r.path)) ? "请重新导入 AD 源工程以读取内嵌模型。" : ""}` : `器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.missing);
-      }
       if(cancelled){cleanup();return;}
       const box=new THREE.Box3().setFromObject(group), center=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());group.position.sub(center);
       const distance=Math.max(size.x,size.y,1)*1.4;
@@ -73,12 +69,20 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
       scene.add(new THREE.HemisphereLight(0xffffff,0x61796a,3));const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(0,-distance,distance);scene.add(light);
       const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.current.appendChild(renderer.domElement);
       const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.update();controls.saveState();reset.current=()=>controls.reset();
-      const resize=new ResizeObserver(()=>{if(!host.current)return;const w=host.current.clientWidth,h=host.current.clientHeight;renderer.setSize(w,h);camera.aspect=w/Math.max(h,1);camera.updateProjectionMatrix();});resize.observe(host.current);
-      renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
-      cleanup=()=>{resize.disconnect();renderer.setAnimationLoop(null);controls.dispose();resources.forEach(r=>r.dispose());renderer.dispose();renderer.domElement.remove();};
+      const resize=new ResizeObserver(()=>{if(!host.current)return;const w=host.current.clientWidth,h=host.current.clientHeight;if(!w||!h)return;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();});resize.observe(host.current);
+      const stopAnimation=animate(renderer,()=>{controls.update();renderer.render(scene,camera);});
+      cleanup=()=>{resize.disconnect();stopAnimation();controls.dispose();const owned=new Set(resources);group.traverse(o=>{if(o instanceof THREE.Mesh){owned.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material])owned.add(m);}});owned.forEach(r=>r.dispose());renderer.dispose();renderer.domElement.remove();};
+      // Show the PCB immediately; arriving component instances are appended in place.
+      if(components){
+        const {loadFootprintModels}=await import('../lib/models/load-footprints');
+        if(cancelled)return;
+        const result=await loadFootprintModels(pcb,assets,abort.signal,text=>{if(!cancelled)setModelStatus(text);},{onGroup:models=>group.add(models)});
+        if(cancelled)return;
+        setModelStatus(result.total === 0 ? `已生成 PCB 板体；当前解析结果没有器件模型引用。${pcb.sourceRefs.some(r=>/\.pcbdoc$/i.test(r.path)) ? "请重新导入 AD 源工程以读取内嵌模型。" : ""}` : `器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.failures);
+      }else setModelStatus("已生成 PCB 板体 / 焊盘");
     }
-    draw().catch(e=>{cleanup();if(!cancelled)setError(e instanceof Error?e.message:"3D 初始化失败；请检查浏览器 WebGL 支持。");});
+    draw().catch(e=>{if(cancelled)return;cleanup();setError(e instanceof Error?e.message:"3D 初始化失败；请检查浏览器 WebGL 支持。");});
     return()=>{cancelled=true;abort.abort();cleanup();};
-  },[pcb,assets,components]);
-  return <div><div className="board-scene-toolbar" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,padding:"12px 20px",borderBottom:"1px solid #dde5df"}}><p role="status" style={{margin:0,fontSize:13,lineHeight:1.5,flex:1,minWidth:0}}>{modelStatus || "正在准备 3D 视图…"}</p><button type="button" onClick={()=>reset.current()} style={{flexShrink:0,padding:"8px 14px",border:"1px solid #cbd5cf",borderRadius:8,background:"#fff",fontSize:13,cursor:"pointer"}}>重置视角</button></div>{error && <p role="alert" style={{padding:24}}>{error}</p>}{missing.length>0&&<details><summary>{missing.length} 个模型未加载（查看原因）</summary><ul>{missing.map((m,i)=><li key={i}>{m}</li>)}</ul></details>}<div ref={host} aria-label="PCB 三维视图" style={{height:600,width:"100%",display:error?"none":"block"}}/></div>;
+  },[pcb,assets,components,animate]);
+  return <div><div className="board-scene-toolbar" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,padding:"12px 20px",borderBottom:"1px solid #dde5df"}}><p role="status" style={{margin:0,fontSize:13,lineHeight:1.5,flex:1,minWidth:0}}>{modelStatus || "正在准备 3D 视图…"}</p><button type="button" onClick={()=>reset.current()} style={{flexShrink:0,padding:"8px 14px",border:"1px solid #cbd5cf",borderRadius:8,background:"#fff",fontSize:13,cursor:"pointer"}}>重置视角</button></div>{error && <p role="alert" style={{padding:24}}>{error}</p>}{missing.length>0&&<details style={{padding:"8px 20px",fontSize:13}}><summary>{missing.length} 种模型未加载，影响 {missing.reduce((n,m)=>n+m.references.length,0)} 个引用（查看原因）</summary><ul style={{maxHeight:160,overflow:"auto",overflowWrap:"anywhere"}}>{missing.map((m,i)=><li key={i}><strong>{m.references.length} 个引用：</strong>{m.path} — {m.reason}<details><summary>查看位号</summary>{m.references.join(', ')}</details></li>)}</ul></details>}<div ref={host} aria-label="PCB 三维视图" style={{height:600,width:"100%",display:error?"none":"block"}}/></div>;
 }

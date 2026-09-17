@@ -41,6 +41,7 @@ import { parseEdaProject } from "../lib/eda/parse";
 import { prepareAllegroInputs } from "../lib/eda/allegro-client";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
 import { Board3DViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
+import { KeepAlivePanel } from "./KeepAlivePanel";
 
 type ResultTab = "knowledge" | "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
 type AppView = "workspace" | "history" | "adapters";
@@ -705,7 +706,7 @@ export default function EdaWorkbench() {
                   </div>
                 )}
 
-                {activeTab === "3d" && <Board3DViewer bundle={bundle} assets={sourceAssets} />}
+                <KeepAlivePanel key={bundle.bundleId} active={activeTab === "3d"}><Board3DViewer bundle={bundle} assets={sourceAssets} active={activeTab === "3d"} /></KeepAlivePanel>
 
                 <div hidden={activeTab !== "parts"}><BomWorkbench key={bundle.bundleId} bundle={bundle} mappings={bomMappings} onMapping={(id,m)=>{setBomMappings(previous=>({...previous,[id]:m}));setSaveState("idle");}} /></div>
 

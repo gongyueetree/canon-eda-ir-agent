@@ -1,7 +1,12 @@
 import type {InputAsset,PcbIr} from '../eda/types';
 import {decompress} from 'fzstd';
 import {altiumEmbeddedModels} from '../eda/altium-models';
+const embeddedCache = new WeakMap<InputAsset, InputAsset[]>();
 export function embeddedModels(source:InputAsset):InputAsset[]{
+ const cached = embeddedCache.get(source); if(cached)return cached;
+ const result = readEmbeddedModels(source); embeddedCache.set(source,result); return result;
+}
+function readEmbeddedModels(source:InputAsset):InputAsset[]{
  if(/\.pcbdoc$/i.test(source.path))return altiumEmbeddedModels(source);
  const text=new TextDecoder().decode(source.bytes),result:InputAsset[]=[];
  // KiCad embeds Base64-encoded Zstandard frames between pipe delimiters.
@@ -27,11 +32,15 @@ export function embeddedModels(source:InputAsset):InputAsset[]{
  return result;
 }
 function normalize(path:string){const out:string[]=[];for(const p of path.replace(/\\/g,'/').split('/')){if(p==='..')out.pop();else if(p&&p!=='.')out.push(p);}return out.join('/');}
-export function resolveModelPath(path:string,pcb:PcbIr,assets:InputAsset[]):{asset?:InputAsset;official?:string}{
+export function resolveModelPath(path:string,pcb:PcbIr,assets:InputAsset[]):{asset?:InputAsset;official?:string;espressif?:string}{
  const dir=(pcb.sourceRefs[0]?.path??'').replace(/[^/]+$/,'');
  if(path.startsWith('kicad-embed://')||path.startsWith('altium-embed://'))return {asset:assets.find(a=>a.path===path)};
  const official=path.match(/^\$\{(?:KICAD(?:\d+)?_3DMODEL_DIR|KISYS3DMOD)\}\/([^/]+\.3dshapes\/.+)$/)?.[1];
  if(official)return {asset:assets.find(a=>a.path.endsWith('/'+official)||a.path===official),official};
+ const espressif=path.match(/^\$\{KICAD\d*_3RD_PARTY\}\/3dmodels\/com_github_espressif_kicad-libraries\/espressif\.3dshapes\/([^/]+\.(?:step|stp|wrl))$/i)?.[1];
  const local=normalize(path.replace(/^\$\{KIPRJMOD\}\//,dir));
- return {asset:assets.find(a=>normalize(a.path)===local)??assets.find(a=>normalize(a.path)===normalize(dir+path))};
+ const direct=assets.find(a=>normalize(a.path)===local)??assets.find(a=>normalize(a.path)===normalize(dir+path));
+ const tail=path.replace(/^\$\{[^}]+\}\//,'');
+ const candidates=assets.filter(a=>normalize(a.path)===tail||normalize(a.path).endsWith('/'+tail)||espressif && normalize(a.path).endsWith('/espressif.3dshapes/'+espressif));
+ return {asset:direct??(candidates.length===1?candidates[0]:undefined),espressif};
 }

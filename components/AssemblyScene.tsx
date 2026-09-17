@@ -2,16 +2,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { InputAsset } from "../lib/eda/types";
 import { validateVrml } from "../lib/models/assets";
-import type {StepMesh} from "../lib/models/step";
-export function AssemblyScene({ asset }: { asset: InputAsset }) {
+import { convertStep } from "../lib/models/step-pool";
+import { modelCacheForAsset } from "../lib/models/model-cache";
+import { useSceneAnimation } from "./useSceneAnimation";
+export function AssemblyScene({ asset,active=true }: { asset: InputAsset;active?:boolean }) {
   const host = useRef<HTMLDivElement>(null),
     reset = useRef(() => {});
   const [status, setStatus] = useState("正在加载实体模型…");
+  const animate=useSceneAnimation(active);
   useEffect(() => {
     let cancelled = false,
-      dispose = () => {},
-      worker: Worker | undefined;
-    let rejectWork: ((e: Error) => void) | undefined;
+      dispose = () => {};
+    const abort=new AbortController();
     async function run() {
       const [T, { OrbitControls }] = await Promise.all([
         import("three"),
@@ -35,34 +37,12 @@ export function AssemblyScene({ asset }: { asset: InputAsset }) {
         holder.add(parsed);
         group.add(optimizeAssembly(holder));
       } else {
-        const meshes = await new Promise<StepMesh[]>((resolve, reject) => {
-          worker = new Worker("/workers/step.js");
-          const timer = setTimeout(() => {
-            worker?.terminate();
-            reject(new Error("STEP 转换超过 60 秒，请使用工程的 WRL 导出"));
-          }, 60000);
-          rejectWork = (e) => {
-            clearTimeout(timer);
-            reject(e);
-          };
-          worker.onmessage = (event) => {
-            clearTimeout(timer);
-            worker?.terminate();
-            if (event.data.error) reject(new Error(event.data.error));
-            else resolve(event.data.meshes);
-          };
-          worker.onerror = () => {
-            clearTimeout(timer);
-            worker?.terminate();
-            reject(new Error("STEP 转换器加载失败，请刷新重试"));
-          };
-          const copy = asset.bytes.slice();
-          worker.postMessage(copy.buffer, [copy.buffer]);
-        });
+        const data=await modelCacheForAsset(asset).get(asset.path,abort.signal,async()=>({kind:"step",meshes:await convertStep(asset.bytes,abort.signal)}));
+        if(data.kind!=="step")throw new Error("STEP 缓存类型错误");
         if (cancelled) return;
         const {createStepAssembly}=await import('../lib/models/step');
         if(cancelled)return;
-        group.add(createStepAssembly(meshes));
+        group.add(createStepAssembly(data.meshes));
       }
       group.traverse((obj) => {
         if (obj instanceof T.Mesh) {
@@ -106,18 +86,19 @@ export function AssemblyScene({ asset }: { asset: InputAsset }) {
         if (!host.current) return;
         const w = host.current.clientWidth,
           h = host.current.clientHeight;
+        if(!w||!h)return;
         renderer.setSize(w, h);
         camera.aspect = w / Math.max(h, 1);
         camera.updateProjectionMatrix();
       });
       observer.observe(host.current);
-      renderer.setAnimationLoop(() => {
+      const stopAnimation=animate(renderer,() => {
         controls.update();
         renderer.render(scene, camera);
       });
       dispose = () => {
         observer.disconnect();
-        renderer.setAnimationLoop(null);
+        stopAnimation();
         controls.dispose();
         resources.forEach((r) => r.dispose());
         renderer.dispose();
@@ -134,11 +115,10 @@ export function AssemblyScene({ asset }: { asset: InputAsset }) {
     });
     return () => {
       cancelled = true;
-      rejectWork?.(new Error("cancelled"));
-      worker?.terminate();
+      abort.abort();
       dispose();
     };
-  }, [asset]);
+  }, [asset,animate]);
   return (
     <div>
       <div className="viewer-toolbar">

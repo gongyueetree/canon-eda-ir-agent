@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PcbIr, IrPoint, InputAsset } from "../lib/eda/types";
 import { arcPoints, type XY } from "../lib/eda/view-geometry";
+import { cleanBoardContours } from "../lib/models/board-contours";
 
 const EMPTY_ASSETS: InputAsset[] = [];
 export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { pcb: PcbIr; assets?: InputAsset[]; components?: boolean }) {
@@ -15,6 +16,7 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
     let cancelled = false;
     let cleanup = () => {};
     async function draw() {
+      setError(""); setModelStatus(""); setMissing([]);
       const THREE = await import("three");
       const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
       if(cancelled || !host.current) return;
@@ -30,13 +32,14 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
       }
       const near=(a:XY,b:XY)=>Math.hypot(a.x-b.x,a.y-b.y)<.01;
       const loops:XY[][]=[];
-      while(segments.length){const chain=segments.shift()!;while(!near(chain[0],chain[chain.length-1])){const end=chain[chain.length-1];const i=segments.findIndex(s=>near(s[0],end)||near(s[s.length-1],end));if(i<0)throw new Error("板框不完整或包含未支持的圆弧，无法生成可靠的 3D 板体。请重新导入完整 KiCad PCB。");let next=segments.splice(i,1)[0];if(!near(next[0],end))next=next.reverse();chain.push(...next.slice(1));}loops.push(chain);}
-      if(!loops.length)throw new Error("没有闭合的 Edge.Cuts 板框，无法生成 3D 板体。");
+      while(segments.length){const chain=segments.shift()!;while(!near(chain[0],chain[chain.length-1])){const end=chain[chain.length-1];const i=segments.findIndex(s=>near(s[0],end)||near(s[s.length-1],end));if(i<0)throw new Error("板框不完整或包含未支持的圆弧，无法生成可靠的 3D 板体。请重新导入完整 PCB 源文件。");let next=segments.splice(i,1)[0];if(!near(next[0],end))next=next.reverse();chain.push(...next.slice(1));}loops.push(chain);}
+      const contours = cleanBoardContours(loops);
+      if(!contours.length)throw new Error("没有有效的闭合板框，无法生成 3D 板体。");
       const area=(p:XY[])=>p.reduce((sum,v,i)=>{const n=p[(i+1)%p.length];return sum+v.x*n.y-n.x*v.y;},0)/2;
-      loops.sort((a,b)=>Math.abs(area(b))-Math.abs(area(a)));
+      contours.sort((a,b)=>Math.abs(area(b))-Math.abs(area(a)));
       const inside=(p:XY,polygon:XY[])=>{let yes=false;for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){const a=polygon[i],b=polygon[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)yes=!yes;}return yes;};
       const shapes:Array<{loop:XY[];shape:InstanceType<typeof THREE.Shape>}> = [];
-      for(const loop of loops){const parent=shapes.find(s=>inside(loop[0],s.loop));const points=loop.map(p=>new THREE.Vector2(p.x,p.y));if(parent)parent.shape.holes.push(new THREE.Path(points));else shapes.push({loop,shape:new THREE.Shape(points)});}
+      for(const loop of contours){const parent=shapes.find(s=>inside(loop[0],s.loop));const points=loop.map(p=>new THREE.Vector2(p.x,p.y));if(parent)parent.shape.holes.push(new THREE.Path(points));else shapes.push({loop,shape:new THREE.Shape(points)});}
       for(const drill of [...pcb.pads.filter(p=>p.drill).map(p=>({position:p.position,x:Number(p.drill!.x),y:Number(p.drill!.y),rotation:Number(p.rotation??0)})),...pcb.vias.map(v=>({position:v.position,x:Number(v.drill??0),y:Number(v.drill??0),rotation:0}))]){
         const p=point(drill.position);if(!p||drill.x<=0||drill.y<=0)continue;const target=shapes.find(s=>inside(p,s.loop));if(!target)continue;
         const r=drill.rotation*Math.PI/180;const pts=rounded(drill.x,drill.y,Math.min(drill.x,drill.y)/2).getPoints(24).map(v=>new THREE.Vector2(p.x+v.x*Math.cos(r)-v.y*Math.sin(r),p.y+v.x*Math.sin(r)+v.y*Math.cos(r)));target.shape.holes.push(new THREE.Path(pts));
@@ -61,7 +64,7 @@ export function BoardScene({ pcb, assets = EMPTY_ASSETS, components = true }: { 
         const result=await loadFootprintModels(pcb,assets,abort.signal,text=>{if(!cancelled)setModelStatus(text);});
         result.group.traverse(o=>{if(o instanceof THREE.Mesh){resources.push(o.geometry);resources.push(...(Array.isArray(o.material)?o.material:[o.material]));}});
         if(cancelled){cleanup();return;}
-        group.add(result.group);setModelStatus(`器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.missing);
+        group.add(result.group);setModelStatus(result.total === 0 ? `已生成 PCB 板体；当前解析结果没有器件模型引用。${pcb.sourceRefs.some(r=>/\.pcbdoc$/i.test(r.path)) ? "AD 内嵌器件模型尚未接入。" : ""}` : `器件实体模型 ${result.loaded}/${result.total} 个引用已加载`);setMissing(result.missing);
       }
       if(cancelled){cleanup();return;}
       const box=new THREE.Box3().setFromObject(group), center=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());group.position.sub(center);

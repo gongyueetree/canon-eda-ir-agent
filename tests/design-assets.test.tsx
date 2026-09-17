@@ -123,3 +123,33 @@ test('library gallery renders three slots, pin names, centered pads and clears a
  test('source decimal pad dimensions retain leading-dot and exponent values',()=>{
   assert.equal(numericString('.65'),'.65');assert.equal(numericString('-.125'),'-.125');assert.equal(numericString('1e-3'),'1e-3');assert.equal(numericString('bad'),'0');
  });
+
+
+test('display groups collapse repeated candidate placements by project, model and package',async()=>{
+ const {groupDesignAssets}=await import('../lib/design-assets/groups');
+ const inputs=fixture(false);const assets=await extractDesignAssets(await parseEdaProject(inputs),inputs);
+ const groups=groupDesignAssets(assets);
+ assert.equal(groups.length,1);assert.deepEqual(groups[0].references,['U1','U2']);assert.equal(groups[0].items.length,3);
+ assert.equal(groups[0].items[0].origins.length,2);assert.ok(groups[0].members.every(a=>!a.identityConfirmed),'display grouping must not confirm candidate MPNs');
+ const otherPackage=assets.map(a=>a.kind==='footprint'&&a.origins[0].reference==='U2'?{...a,name:'Custom:OTHER'}:a);
+ assert.equal(groupDesignAssets(otherPackage).length,2,'same value with a different package stays separate');
+ const variant=assets.map(a=>a.kind==='footprint'&&a.origins[0].reference==='U2'?{...a,fingerprint:'different'}:a);
+ const changed=groupDesignAssets(variant);assert.equal(changed.length,1);assert.equal(changed[0].items.filter(a=>a.kind==='footprint').length,2,'geometry variants remain reviewable within one card');
+ const secondProject=assets.map(a=>({...a,id:'second-'+a.id,origins:a.origins.map(o=>({...o,bundleId:'other-project'}))}));
+ assert.equal(groupDesignAssets([...assets,...secondProject]).length,2);
+});
+
+test('preview opens inside the deduplicated component card and can be closed in place',async()=>{
+ const {JSDOM}=await import('jsdom');const {act}=await import('react');const {createRoot}=await import('react-dom/client');const {DesignAssetWorkbench}=await import('../components/DesignAssetWorkbench');
+ const dom=new JSDOM('<div id="root"></div>');Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+ const inputs=fixture(false).filter(a=>!a.path.endsWith('.step')).map(a=>a.path.endsWith('.kicad_pcb')?{...a,bytes:enc.encode(new TextDecoder().decode(a.bytes).replace(/\(model "model.step" \(offset \(xyz 0 0 0\)\) \(scale \(xyz 1 1 1\)\) \(rotate \(xyz 0 0 0\)\)\)/g,''))}:a);
+ const bundle=await parseEdaProject(inputs),root=createRoot(document.getElementById('root')!);const original=globalThis.fetch;globalThis.fetch=async()=>Response.json({results:[]});
+ const click=async(text:string)=>act(async()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent===text);assert.ok(b);b.click();});
+ try{
+  await act(async()=>root.render(<DesignAssetWorkbench bundle={bundle} assets={inputs} mappings={{}}/>));await click('提取当前工程');
+  for(let i=0;i<80&&!document.querySelector('[data-component-group]');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+  const cards=document.querySelectorAll('[data-component-group]');assert.equal(cards.length,1);assert.match(cards[0].textContent!,/共 2 个/);assert.match(cards[0].textContent!,/U1、U2/);
+  await click('预览 / 对比');assert.ok(cards[0].querySelector('.design-gallery'));assert.equal(document.querySelector('.design-assets > .design-gallery'),null);
+  await click('关闭预览');assert.equal(document.querySelector('.design-gallery'),null);
+ }finally{await act(async()=>root.unmount());globalThis.fetch=original;dom.window.close();}
+});

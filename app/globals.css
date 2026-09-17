@@ -577,3 +577,7 @@ td code { color: #718078; font-size: 8px; }
 .design-variant select { max-width:100%; min-width:0; }
 .design-gallery-note { color:#718477; font-size:12px; margin-top:16px; }
 @media(max-width:850px){ .design-comparison { grid-template-columns:1fr; } .design-gallery { padding:12px; } }
+
+.design-quantity { padding:4px 9px; border-radius:12px; background:#eaf3ed; color:#315e44; font-size:12px; }
+.design-group-context { font-size:12px; color:#62796b; overflow-wrap:anywhere; line-height:1.6; }
+.design-group > .design-gallery { margin-bottom:0; }

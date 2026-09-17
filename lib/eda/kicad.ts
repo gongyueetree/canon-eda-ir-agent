@@ -1185,10 +1185,21 @@ function parsePcb(
       })
     : [];
   const netMap = new Map<string, string>();
+  // KiCad 10 writes (net "NAME") on items, without a numeric board net table.
+  // Quoted numeric names such as "0" are real nets, not the old unconnected code 0.
+  const netKey = (node?: SList): string | undefined => {
+    const token = node?.items[1], value = atom(token);
+    if (token?.kind === "atom" && token.quoted && node?.items.length === 2) return value ? `name:${value}` : undefined;
+    return value;
+  };
   for (const netNode of directChildren(root, "net")) {
     const id = atom(netNode.items[1]);
     const name = atom(netNode.items[2]);
     if (id !== undefined && name !== undefined) netMap.set(id, name);
+  }
+  for (const node of allDescendants(root, "net")) {
+    const token = node.items[1], key = netKey(node);
+    if (token?.kind === "atom" && token.quoted && node.items.length === 2 && key) netMap.set(key, token.value);
   }
   const canonicalNetId = (sourceNativeNetId?: string): string | undefined => {
     if (!sourceNativeNetId || sourceNativeNetId === "0") return undefined;
@@ -1223,7 +1234,7 @@ function parsePcb(
       const worldAt = localAt && at ? transformPoint(localAt[0], localAt[1], at[0], at[1], String(-Number(at[2]))) : localAt ? [localAt[0], localAt[1]] : undefined;
       const size = firstChild(padNode, "size");
       const net = firstChild(padNode, "net");
-      const sourceNativeNetId = atom(net?.items[1]);
+      const sourceNativeNetId = netKey(net);
       const netName = atom(net?.items[2]) ?? (sourceNativeNetId ? netMap.get(sourceNativeNetId) : undefined);
       const layersList = firstChild(padNode, "layers");
       const padNativeId = childValue(padNode, "uuid") ?? `${nativeId}:pad:${number}:${padIndex}`;
@@ -1275,7 +1286,7 @@ function parsePcb(
     const nativeId = nodeUuid(trackNode, `${head(trackNode)}:${index}`);
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: trackNode.span.line, column: trackNode.span.column });
     sourceMap.push(ref);
-    const sourceNativeNetId = childValue(trackNode, "net");
+    const sourceNativeNetId = netKey(firstChild(trackNode, "net"));
     return {
       id: stableId("track", pcbId, nativeId),
       kind: head(trackNode) === "arc" ? "arc" : "segment",
@@ -1295,7 +1306,7 @@ function parsePcb(
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: viaNode.span.line, column: viaNode.span.column });
     sourceMap.push(ref);
     const layerList = firstChild(viaNode, "layers");
-    const sourceNativeNetId = childValue(viaNode, "net");
+    const sourceNativeNetId = netKey(firstChild(viaNode, "net"));
     return {
       id: stableId("via", pcbId, nativeId),
       position: at ? point(at[0], at[1]) : undefined,
@@ -1312,7 +1323,7 @@ function parsePcb(
     const ref = sourceRef(asset.id, asset.relativePath, "explicit", { nativeId, line: zoneNode.span.line, column: zoneNode.span.column });
     sourceMap.push(ref);
     const layersNode = firstChild(zoneNode, "layers");
-    const sourceNativeNetId = childValue(zoneNode, "net");
+    const sourceNativeNetId = netKey(firstChild(zoneNode, "net"));
     return {
       id: stableId("zone", pcbId, nativeId),
       netId: canonicalNetId(sourceNativeNetId),

@@ -1,4 +1,5 @@
 import { parseAltium } from "./altium";
+import { parseAllegro } from "./allegro";
 import { inventoryAssets } from "./detect";
 import { parseEasyEda } from "./easyeda";
 import { isJlcProProject, parseJlcPro } from "./jlcpro";
@@ -184,7 +185,7 @@ function calculateFidelity(
       note: format === "kicad" ? "端点、Junction、标签和符号 Pin 采用确定性几何图；内部交叉无 Junction 不连接。" : "未对不稳定或专有记录猜测连通性。",
     },
     pcbConnectivity: {
-      status: parsed.pcbs.length ? format === "altium" ? "partial" : "substantially_complete" : format === "altium" ? "structure_only" : "unknown",
+      status: parsed.pcbs.length ? ["altium", "allegro"].includes(format) ? "partial" : "substantially_complete" : format === "altium" ? "structure_only" : "unknown",
       recognized: parsed.pcbs.reduce((sum, pcb) => sum + pcb.pads.length + pcb.tracks.length + pcb.vias.length, 0),
       normalized: parsed.nets.filter((net) => net.domain === "pcb_physical").length,
       opaque: 0,
@@ -238,6 +239,7 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
   if (detection.sourceFormat === "kicad") parsed = parseKicad(inputs, detection.assets);
   else if (detection.sourceFormat === "easyeda") parsed = isJlcProProject(inputs, detection.assets) ? parseJlcPro(inputs, detection.assets) : parseEasyEda(inputs, detection.assets);
   else if (detection.sourceFormat === "altium") parsed = parseAltium(inputs, detection.assets);
+  else if (detection.sourceFormat === "allegro") parsed = parseAllegro(inputs, detection.assets);
   else {
     parsed = {
       settings: {}, schematics: [], pcbs: [], parts: [], nets: [], constraints: [], libraries: [], sourceMap: [], diagnostics: [diagnostic("FORMAT_UNSUPPORTED", "没有可用于该工程包的解析适配器。", "error", "unsupported")], opaqueNodes: [], recognized: 0, normalized: 0, opaque: 0,
@@ -307,9 +309,9 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     generatedAt: new Date().toISOString(),
     parser: {
       agent: "eda-canonical-ir-agent",
-      agentVersion: "1.5.2",
-      adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? parsed.schematics.length || parsed.pcbs.length ? "altium-cfb-records" : "altium-safe-intake" : "unknown",
-      adapterVersion: "1.5.2",
+      agentVersion: "1.6.0",
+      adapterId: detection.sourceFormat === "allegro" ? "allegro-kicad-bridge" : detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? parsed.schematics.length || parsed.pcbs.length ? "altium-cfb-records" : "altium-safe-intake" : "unknown",
+      adapterVersion: "1.6.0",
       deterministic: true,
       llmUsedForParsing: false,
       roundTripReadiness: "read_only",

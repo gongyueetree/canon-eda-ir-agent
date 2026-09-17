@@ -47,3 +47,4 @@ next-env.d.ts
 !.env.example
 
 /public/occt/
+__pycache__/

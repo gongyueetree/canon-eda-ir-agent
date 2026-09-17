@@ -2,6 +2,8 @@
 
 CANON 是一个只读、确定性的 EDA 工程解析 Agent。它在浏览器中安全摄取 KiCad、Altium、嘉立创EDA / EasyEDA 文件，生成统一、版本化并可追溯到源对象的 Canonical IR。
 
+Parser 1.6.0 新增 **Allegro PCB 转换导入**：原生 `.brd` 经外部 KiCad 10+ 服务或本地转换工具生成可追溯 ZIP，再查看 PCB、派生 BOM 和物理网表。Vercel 代码本身不包含 KiCad，未配置转换服务时请使用本地工具；原生原理图与完整器件 3D 尚未承诺支持。详见 [Allegro 使用及部署说明](docs/allegro-support.md)。
+
 当前 MVP 输出：
 
 - Project IR

@@ -38,6 +38,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createDemoFiles, filesToInputAssets } from "../lib/eda/archive";
 import { createIrDomainExport, IR_DOMAIN_KEYS, type IrDomainKey } from "../lib/eda/export";
 import { parseEdaProject } from "../lib/eda/parse";
+import { prepareAllegroInputs } from "../lib/eda/allegro-client";
 import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
 import { Board3DViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
 
@@ -68,6 +69,7 @@ const SUPPORT_MATRIX = [
   { format: "EasyEDA 标准版", level: "在线查看", tone: "ready", detail: "JSON 多页 Sch / PCB / BOM / Netlist" },
   { format: "JLCEDA Pro", level: "在线查看", tone: "partial", detail: "EPro / ESch / EPCB 已映射对象在线显示" },
   { format: "Altium", level: "结构预览", tone: "planned", detail: "PrjPcb 元数据；二进制 CFB 几何适配中" },
+  { format: "Allegro PCB", level: "转换导入", tone: "partial", detail: "BRD → KiCad 10+ 转换服务或本地 ZIP；PCB / 派生 BOM / 网表，原理图暂不支持" },
 ];
 
 const DOMAIN_NAV: Array<{
@@ -90,7 +92,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatName(format: string): string {
-  return format === "easyeda" ? "EasyEDA / JLCEDA" : format === "kicad" ? "KiCad" : format === "altium" ? "Altium" : "Unknown";
+  return format === "easyeda" ? "EasyEDA / JLCEDA" : format === "kicad" ? "KiCad" : format === "altium" ? "Altium" : format === "allegro" ? "Allegro" : "Unknown";
 }
 
 function statusLabel(status: string): string {
@@ -306,6 +308,9 @@ export default function EdaWorkbench() {
     try {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const intake = await filesToInputAssets(files);
+      const allegro = await prepareAllegroInputs(intake.assets, () => runId === parseRunIdRef.current);
+      intake.assets = allegro.assets;
+      intake.diagnostics.push(...allegro.diagnostics);
       if (runId !== parseRunIdRef.current) return;
       setParseStage(2);
       await new Promise((resolve) => setTimeout(resolve, 90));
@@ -526,7 +531,7 @@ export default function EdaWorkbench() {
         </div>
         <div className="sidebar-footer">
           <div className={`db-state ${dbConfigured ? "online" : ""}`}><Database size={15} /><span>{dbConfigured ? "PostgreSQL 已连接" : "本地只读模式"}</span></div>
-          <small>Parser {bundle?.parser.adapterVersion ?? "1.5.2"} · IR 1.0.0</small>
+          <small>Parser {bundle?.parser.adapterVersion ?? "1.6.0"} · IR 1.0.0</small>
         </div>
       </aside>
 
@@ -589,7 +594,7 @@ export default function EdaWorkbench() {
                 <div className={`fidelity-seal ${bundle.fidelity.overallStatus}`}><CircleGauge size={21} /><div><small>FIDELITY</small><strong>{statusLabel(bundle.fidelity.overallStatus)}</strong></div></div>
               </div>
 
-              {String(bundle.parser.adapterVersion) !== "1.5.2" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始工程文件，使用当前解析器重新处理。</p>}
+              {String(bundle.parser.adapterVersion) !== "1.6.0" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始工程文件，使用当前解析器重新处理。</p>}
               <div className="result-tabs" role="tablist">
                 {resultTabs.map((tab) => <button role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)} key={tab.id}>{tab.label}{tab.count !== undefined && <span>{tab.count}</span>}</button>)}
               </div>
@@ -836,7 +841,7 @@ export default function EdaWorkbench() {
           {view === "adapters" && (
             <section className="secondary-view">
               <div className="section-heading"><div className="eyebrow">ADAPTER REGISTRY</div><h1>格式能力矩阵</h1><p>每项能力都按真实实现标注；“安全摄取”不等于“语义完整解析”。</p></div>
-              <div className="adapter-grid">{SUPPORT_MATRIX.map((item) => <article className="adapter-card" key={item.format}><div className={`adapter-icon ${item.tone}`}>{item.format.startsWith("KiCad") ? <CircuitBoard size={23} /> : item.format.startsWith("Altium") ? <Layers3 size={23} /> : <Box size={23} />}</div><div><div className="adapter-title"><h3>{item.format}</h3><span className={item.tone}>{item.level}</span></div><p>{item.detail}</p></div><ul>{item.format.startsWith("KiCad") ? <><li><Check size={13} /> S-expression lexer + AST + Source Span</li><li><Check size={13} /> Deterministic junction connectivity</li><li><Check size={13} /> PCB explicit Net assignment</li></> : item.format.startsWith("Altium") ? <><li><Check size={13} /> PrjPcb / DsnWrk / OutJob configuration</li><li><Check size={13} /> CFB signature and bounds intake</li><li className="pending"><Clock3 size={13} /> Proprietary Record semantic mapper</li></> : item.format.startsWith("JLC") ? <><li><Check size={13} /> EPro ZIP + Project manifest</li><li><Check size={13} /> ESch / EPCB record mapping</li><li className="pending"><Clock3 size={13} /> SQLite private-table semantic mapper</li></> : <><li><Check size={13} /> docType 1 / 3 / 5 routing</li><li><Check size={13} /> Schematic and PCB Shape mapping</li><li className="pending"><Clock3 size={13} /> Rare Shape semantic coverage</li></>}</ul></article>)}</div>
+              <div className="adapter-grid">{SUPPORT_MATRIX.map((item) => <article className="adapter-card" key={item.format}><div className={`adapter-icon ${item.tone}`}>{item.format.startsWith("KiCad") ? <CircuitBoard size={23} /> : item.format.startsWith("Altium") ? <Layers3 size={23} /> : <Box size={23} />}</div><div><div className="adapter-title"><h3>{item.format}</h3><span className={item.tone}>{item.level}</span></div><p>{item.detail}</p></div><ul>{item.format.startsWith("KiCad") ? <><li><Check size={13} /> S-expression lexer + AST + Source Span</li><li><Check size={13} /> Deterministic junction connectivity</li><li><Check size={13} /> PCB explicit Net assignment</li></> : item.format.startsWith("Altium") ? <><li><Check size={13} /> PrjPcb / DsnWrk / OutJob configuration</li><li><Check size={13} /> CFB signature and bounds intake</li><li className="pending"><Clock3 size={13} /> Proprietary Record semantic mapper</li></> : item.format.startsWith("Allegro") ? <><li><Check size={13} /> BRD content signature + source hashes</li><li><Check size={13} /> KiCad 10+ conversion package</li><li className="pending"><Clock3 size={13} /> Online import requires a configured worker</li></> : item.format.startsWith("JLC") ? <><li><Check size={13} /> EPro ZIP + Project manifest</li><li><Check size={13} /> ESch / EPCB record mapping</li><li className="pending"><Clock3 size={13} /> SQLite private-table semantic mapper</li></> : <><li><Check size={13} /> docType 1 / 3 / 5 routing</li><li><Check size={13} /> Schematic and PCB Shape mapping</li><li className="pending"><Clock3 size={13} /> Rare Shape semantic coverage</li></>}</ul></article>)}</div>
               <article className="panel principles"><div className="panel-title"><div><ShieldCheck size={18} /><strong>不可突破的解析纪律</strong></div></div><div>{["Wire 几何对象不等于 Net", "Cross without Junction 不连接", "同名 Net 不自动跨文档合并", "Unknown Token / Record / Shape 必须保留", "V1 只读，不无损写回", "核心解析与连通性不使用 LLM"].map((item) => <span key={item}><Check size={14} />{item}</span>)}</div></article>
             </section>
           )}

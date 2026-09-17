@@ -1,4 +1,4 @@
-export type SourceFormat = "kicad" | "altium" | "easyeda" | "unknown";
+export type SourceFormat = "kicad" | "altium" | "allegro" | "easyeda" | "unknown";
 
 export type DiagnosticSeverity =
   | "fatal"
@@ -275,9 +275,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.5.2";
+    agentVersion: "1.6.0";
     adapterId: string;
-    adapterVersion: "1.5.2";
+    adapterVersion: "1.6.0";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";

@@ -8,7 +8,7 @@ import type { PcbIr } from "../lib/eda/types";
 
 const props=(s:string)=>{const b=Buffer.from(s+"\0"),h=Buffer.alloc(4);h.writeUInt32LE(b.length);return Buffer.concat([h,b]);};
 function fixture(bottom:boolean){
-  const pcb={footprints:[{id:"fp",reference:"U1",position:{x:"10",y:"-20",unit:"mm"},rotation:"90",side:bottom?"back":"front",padIds:[]}]} as PcbIr;
+  const pcb={footprints:[{id:"fp",reference:"U1",position:{x:"10",y:"-20",unit:"mm"},rotation:"90",side:bottom?"back":"front",padIds:[]}]} as unknown as PcbIr;
   const p=props(`|MODELID={A}|MODEL.EMBED=TRUE|MODEL.2D.X=12mm|MODEL.2D.Y=23mm|MODEL.3D.DZ=0.5mm|MODEL.3D.ROTZ=0|BODYPROJECTION=${bottom?1:0}`);
   const body=Buffer.concat([Buffer.alloc(18),p]),h=Buffer.alloc(5);h[0]=12;h.writeUInt32LE(body.length,1);
   const stream=(name:string)=>name==="Models/Data"?props("|ID={A}|NAME=same.step|EMBED=TRUE"):Buffer.concat([h,body]);

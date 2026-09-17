@@ -80,7 +80,7 @@ export function validateReferentialIntegrity(scope: ReferenceScope): ParseDiagno
     }
     for (const pad of pcb.pads) {
       register(pad.id, "pad");
-      reference(pad.id, "footprintId", pad.footprintId, pad.sourceRef);
+      reference(pad.id, "footprintId", pad.footprintId, pad.sourceRef, true);
       reference(pad.id, "netId", pad.netId, pad.sourceRef, true);
     }
     for (const track of pcb.tracks) {

@@ -213,7 +213,7 @@ export type PcbIr = {
   }>;
   pads: Array<{
     id: string;
-    footprintId: string;
+    footprintId?: string;
     number: string;
     padType: string;
     shape: string;
@@ -274,9 +274,9 @@ export type CanonicalIrBundle = {
   generatedAt: string;
   parser: {
     agent: "eda-canonical-ir-agent";
-    agentVersion: "1.4.1";
+    agentVersion: "1.5.0";
     adapterId: string;
-    adapterVersion: "1.4.1";
+    adapterVersion: "1.5.0";
     deterministic: true;
     llmUsedForParsing: false;
     roundTripReadiness: "read_only";
@@ -347,4 +347,3 @@ export type InputAsset = {
   path: string;
   bytes: Uint8Array;
 };
-

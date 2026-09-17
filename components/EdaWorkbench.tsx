@@ -411,7 +411,7 @@ export default function EdaWorkbench() {
     for (const pcb of bundle.pcbs) {
       const footprintById = new Map(pcb.footprints.map((footprint) => [footprint.id, footprint]));
       for (const pad of pcb.pads) {
-        const reference = footprintById.get(pad.footprintId)?.reference ?? pad.footprintId.slice(-8);
+        const reference = footprintById.get(pad.footprintId ?? "")?.reference ?? (pad.footprintId?.slice(-8) || "Free pad");
         labels.set(pad.id, `${reference}.Pad ${pad.number || "?"}`);
       }
       for (const track of pcb.tracks) {
@@ -589,7 +589,7 @@ export default function EdaWorkbench() {
                 <div className={`fidelity-seal ${bundle.fidelity.overallStatus}`}><CircleGauge size={21} /><div><small>FIDELITY</small><strong>{statusLabel(bundle.fidelity.overallStatus)}</strong></div></div>
               </div>
 
-              {String(bundle.parser.adapterVersion) !== "1.4.1" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始 KiCad 工程，以补全原理图、PCB 和 3D 几何。</p>}
+              {String(bundle.parser.adapterVersion) !== "1.5.0" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始 KiCad 工程，以补全原理图、PCB 和 3D 几何。</p>}
               <div className="result-tabs" role="tablist">
                 {resultTabs.map((tab) => <button role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)} key={tab.id}>{tab.label}{tab.count !== undefined && <span>{tab.count}</span>}</button>)}
               </div>
@@ -845,4 +845,3 @@ export default function EdaWorkbench() {
     </div>
   );
 }
-

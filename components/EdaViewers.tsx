@@ -74,7 +74,7 @@ function EmptyViewer({ kind, format }: { kind: string; format: string }) {
     <div className="eda-viewer-empty">
       <CircuitBoard size={42} />
       <h3>没有可显示的{kind}几何</h3>
-      <p>{altium ? "该 Altium 文件是专有二进制 CFB 文档，当前只完成安全摄取，尚未产生可视几何。请从 Altium 导出 IPC-2581、ODB++、Gerber/钻孔、BOM 与 Netlist，或等待完整 CFB Record Adapter。" : "工程中未包含对应文档，或适配器尚未规范化该类几何对象。源文件与诊断仍被保留。"}</p>
+      <p>{altium ? "该 AD 文档未生成可视几何。现已支持部分原生 SchDoc/PcbDoc 记录；请查看诊断确认文件版本或未支持的记录。可同时提供 PDF、BOM、Netlist 和 STEP 用于核对。" : "工程中未包含对应文档，或适配器尚未规范化该类几何对象。源文件与诊断仍被保留。"}</p>
     </div>
   );
 }
@@ -337,7 +337,7 @@ export function PcbViewer({ bundle }: { bundle: CanonicalIrBundle }) {
               const position = numericPoint(pad.position); if (!position) return null;
               const p = project(position); const sizeX = Math.max(Number(pad.size?.x ?? 1.2) * scale, .3); const sizeY = Math.max(Number(pad.size?.y ?? 1.2) * scale, .3);
               const selected = !selectedNetId || pad.netId === selectedNetId;
-              return <g className={`pcb-pad ${selected ? "" : "dimmed"}`} key={pad.id}><title>{footprintById.get(pad.footprintId)?.reference}.{pad.number} · {pad.netName}</title><g transform={`rotate(${-Number(pad.rotation ?? 0)} ${p.x} ${p.y})`}><rect x={p.x - sizeX / 2} y={p.y - sizeY / 2} width={sizeX} height={sizeY} rx={/circle|oval/i.test(pad.shape) ? Math.min(sizeX, sizeY) / 2 : pad.shape === "roundrect" ? Math.min(sizeX,sizeY)*.2 : 0} />{pad.drill && <ellipse cx={p.x} cy={p.y} rx={Number(pad.drill.x)*scale/2} ry={Number(pad.drill.y)*scale/2} fill="#10241f" />}</g>{(showLabels || !!selectedNetId && selected) && <text x={p.x + sizeX / 2 + 2} y={p.y + 3}>{footprintById.get(pad.footprintId)?.reference}.{pad.number}</text>}</g>;
+              return <g className={`pcb-pad ${selected ? "" : "dimmed"}`} key={pad.id}><title>{footprintById.get(pad.footprintId ?? "")?.reference}.{pad.number} · {pad.netName}</title><g transform={`rotate(${-Number(pad.rotation ?? 0)} ${p.x} ${p.y})`}><rect x={p.x - sizeX / 2} y={p.y - sizeY / 2} width={sizeX} height={sizeY} rx={/circle|oval/i.test(pad.shape) ? Math.min(sizeX, sizeY) / 2 : pad.shape === "roundrect" ? Math.min(sizeX,sizeY)*.2 : 0} />{pad.drill && <ellipse cx={p.x} cy={p.y} rx={Number(pad.drill.x)*scale/2} ry={Number(pad.drill.y)*scale/2} fill="#10241f" />}</g>{(showLabels || !!selectedNetId && selected) && <text x={p.x + sizeX / 2 + 2} y={p.y + 3}>{footprintById.get(pad.footprintId ?? "")?.reference}.{pad.number}</text>}</g>;
             })}
             {pcb.vias.map((via) => { const position = numericPoint(via.position); if (!position) return null; const p = project(position); return <g className={`pcb-via ${selectedNetId && via.netId !== selectedNetId ? "dimmed" : ""}`} key={via.id}><circle cx={p.x} cy={p.y} r={Math.max(Number(via.size ?? 0.8) * scale / 2, .2)} /><circle cx={p.x} cy={p.y} r={Math.max(Number(via.drill ?? 0.35) * scale / 2, .1)} /></g>; })}
             {pcb.footprints.map(footprint => {const position=numericPoint(footprint.position);if(!position)return null;const p=project(position);return <g className="pcb-source-graphics" key={footprint.id} transform={`translate(${p.x} ${p.y}) rotate(${-Number(footprint.rotation)})`}>{(footprint.graphics ?? []).filter(g=>isVisible(g.layer)&&/SilkS|Fab/.test(g.layer)).map(g=>outlineElement(g,v=>({x:v.x*scale,y:v.y*scale})))}</g>;})}
@@ -421,4 +421,3 @@ export function NetlistToolbar({ bundle, query, onQuery }: { bundle: CanonicalIr
   };
   return <div className="netlist-tools"><label className="viewer-search"><Search size={13} /><input aria-label="搜索 Netlist" placeholder="网络名 / RefDes / Pin" value={query} onChange={(event) => onQuery(event.target.value)} /></label><button type="button" onClick={exportCsv}><Download size={14} /> 下载 Netlist CSV</button></div>;
 }
-

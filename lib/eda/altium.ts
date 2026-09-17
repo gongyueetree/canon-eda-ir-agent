@@ -1,4 +1,5 @@
 import type { KicadParseOutput } from "./kicad";
+import { parseAltiumNative } from "./altium-native";
 import type { InputAsset, SourceAsset } from "./types";
 import { decodeUtf8, diagnostic, sourceRef, stableId, withoutExtension } from "./util";
 
@@ -70,6 +71,21 @@ export function parseAltium(inputs: InputAsset[], inventory: SourceAsset[]): Kic
       continue;
     }
     if (isCfb(input.bytes)) {
+      if ([".schdoc", ".pcbdoc"].includes(asset.extension)) {
+        const native: KicadParseOutput = { settings: {}, schematics: [], pcbs: [], parts: [], nets: [], constraints: [], libraries: [], sourceMap: [], diagnostics: [], opaqueNodes: [], recognized: 0, normalized: 0, opaque: 0 };
+        try {
+          parseAltiumNative(input.bytes, asset, native);
+          output.schematics.push(...native.schematics); output.pcbs.push(...native.pcbs);
+          output.parts.push(...native.parts); output.nets.push(...native.nets);
+          output.diagnostics.push(...native.diagnostics);
+          output.normalized += native.normalized; output.recognized += native.recognized;
+          output.opaqueNodes.push({ recordType: `Altium.Partial${asset.extension}`, sourcePath: asset.relativePath, payloadHash: asset.sha256 });
+          output.opaque += 1;
+          continue;
+        } catch (error) {
+          output.diagnostics.push(diagnostic("ALTIUM_NATIVE_UNSUPPORTED", `${asset.relativePath}: ${error instanceof Error ? error.message : "解析失败"}；保留原文件，未输出该文档的部分错误实体。`, "warning", "unsupported", ref, "preserved"));
+        }
+      }
       output.opaqueNodes.push({ recordType: `Altium.CFB${asset.extension}`, sourcePath: asset.relativePath, payloadHash: asset.sha256 });
       output.opaque += 1;
       output.recognized += 1;
@@ -99,6 +115,13 @@ export function parseAltium(inputs: InputAsset[], inventory: SourceAsset[]): Kic
     }
   }
   output.projectName ??= inventory.find((asset) => asset.detectedFormat === "altium") ? withoutExtension(inventory.find((asset) => asset.detectedFormat === "altium")!.fileName) : "Altium project";
+  for (const part of output.parts) {
+    const matches = output.pcbs.flatMap(p => p.footprints).filter(f => f.reference === part.reference);
+    if (matches.length === 1) {
+      part.footprint = matches[0].libraryIdentifier;
+      part.footprintInstanceId = matches[0].id;
+    }
+  }
   output.sourceToolVersion = "Altium (version unresolved)";
   if (!output.normalized) {
     output.diagnostics.push(diagnostic("UNSUPPORTED_FORMAT", "Altium 专有 SchDoc/PcbDoc 当前为结构级安全摄取；完整 Record Adapter 已在能力矩阵中标记为后续阶段。", "warning", "unsupported", output.sourceMap[0], "preserved"));

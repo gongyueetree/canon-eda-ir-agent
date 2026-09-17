@@ -24,7 +24,7 @@ CANON 是一个只读、确定性的 EDA 工程解析 Agent。它在浏览器中
 - **BOM**：按 Value、Footprint、厂商、MPN 和装配状态合并；支持非无源器件多源查询、候选确认、厂商补全和 CSV 导出。
 - **Netlist**：显示逻辑/物理网络、具体 Endpoint 和跨文档链接，支持搜索、展开与 CSV 下载。
 
-3D 页面支持自包含 VRML 2.0 和 STEP/STP 实体模型。默认选择与 PCB 同路径同名的装配文件（优先 WRL）；没有装配文件时显示 IR 板体。当前不自动从全局 KiCad 模型库下载缺失器件，也不把零散模型猜测放置到板上。KiCad 与 EasyEDA Standard 的已规范化几何可直接显示；JLCEDA Pro 显示当前已映射 Record。Altium 二进制 SchDoc/PcbDoc 目前仍是 CFB 结构级摄取，页面会明确显示不可视原因，不会伪造器件或连线。生产级 Altium 在线查看需要完整的版本化 CFB Record Adapter，或由 Altium 导出 IPC-2581 / ODB++ / Gerber、BOM、Netlist 等开放交换数据。
+3D 页面支持自包含 VRML 2.0 和 STEP/STP 实体模型。默认选择与 PCB 同路径同名的装配文件（优先 WRL）；没有装配文件时显示 IR 板体。当前不自动从全局 KiCad 模型库下载缺失器件，也不把零散模型猜测放置到板上。KiCad 与 EasyEDA Standard 的已规范化几何可直接显示；JLCEDA Pro 显示当前已映射 Record。Altium 二进制 SchDoc/PcbDoc 已支持部分原生记录解析，可查看基础原理图、PCB 和 BOM；AD 内嵌器件 3D 装配、覆铜与部分图元尚未支持，详情见 [AD 支持范围](docs/altium-support.md)。导入结果标记为 partial，不能用于生产签核。
 
 ## 真实能力边界
 
@@ -33,7 +33,7 @@ CANON 是一个只读、确定性的 EDA 工程解析 Agent。它在浏览器中
 | KiCad 5–9+ | 语义解析 | Legacy `.pro` / `.sch` 与现代 `.kicad_pro` / `.kicad_sch` / `.kicad_pcb`；器件、Pin、Wire、Junction、Label、PCB Layer、Footprint、Pad、Track、Via、Zone、Board Outline、板宽/板高/板厚、显式 Net |
 | EasyEDA 标准版 | 结构解析 | JSON / 多文档、受限深度遍历、转义 Shape 扫描、显式结构化器件字段、Unknown Shape 保留 |
 | JLCEDA / EasyEDA Pro | 流式摄取 | JSONL 逐行解析、异常行与未知 Record 保留；完整 Shape 连通性仍是后续阶段 |
-| Altium | 安全摄取 | `.PrjPcb` ASCII 元数据；SchDoc/PcbDoc/Lib 的 CFB/OLE 签名检查、Hash 与 Opaque Record 保留。MVP 不声称完整解析专有 Record |
+| Altium | 原生部分解析 | `.PrjPcb` 元数据；CFB SchDoc 器件/有效显示模式/引脚/导线/标签/基础图元与厂商料号；PcbDoc 封装/焊盘/直线走线/过孔/显式网络/板框。未支持记录保留 Hash 与诊断，不声称完整 AD 保真 |
 
 核心解析不调用 LLM，不执行工程内脚本、宏、插件或 Output Job；不会自动访问全局库或公网，也不会修改或写回源工程。
 

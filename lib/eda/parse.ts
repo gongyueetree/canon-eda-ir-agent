@@ -155,14 +155,14 @@ function calculateFidelity(
   const dimensions: CanonicalIrBundle["fidelity"]["dimensions"] = {
     sourceFiles: { status: "complete", recognized: parsed.recognized, normalized: parsed.normalized, opaque: parsed.opaque, note: "所有摄取文件均保留 Hash 与清单。" },
     schematicConnectivity: {
-      status: hasUnresolvedSchematicNet ? "partial" : format === "kicad" && parsed.schematics.length ? "substantially_complete" : format === "altium" ? "structure_only" : "partial",
+      status: hasUnresolvedSchematicNet ? "partial" : format === "kicad" && parsed.schematics.length ? "substantially_complete" : format === "altium" && !parsed.schematics.length ? "structure_only" : "partial",
       recognized: parsed.schematics.reduce((sum, schematic) => sum + schematic.wires.length + schematic.labels.length, 0),
       normalized: parsed.nets.filter((net) => net.domain === "schematic_logical").length,
       opaque: 0,
       note: format === "kicad" ? "端点、Junction、标签和符号 Pin 采用确定性几何图；内部交叉无 Junction 不连接。" : "未对不稳定或专有记录猜测连通性。",
     },
     pcbConnectivity: {
-      status: parsed.pcbs.length ? "substantially_complete" : format === "altium" ? "structure_only" : "unknown",
+      status: parsed.pcbs.length ? format === "altium" ? "partial" : "substantially_complete" : format === "altium" ? "structure_only" : "unknown",
       recognized: parsed.pcbs.reduce((sum, pcb) => sum + pcb.pads.length + pcb.tracks.length + pcb.vias.length, 0),
       normalized: parsed.nets.filter((net) => net.domain === "pcb_physical").length,
       opaque: 0,
@@ -184,7 +184,7 @@ function calculateFidelity(
     },
   };
   const overallStatus =
-    format === "altium"
+    format === "altium" && !parsed.schematics.length && !parsed.pcbs.length
       ? "structure_only"
       : errorCount > 0 || hasUnresolvedSchematicNet || hasSemanticGap || parsed.opaque > 0
         ? "partial"
@@ -285,9 +285,9 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     generatedAt: new Date().toISOString(),
     parser: {
       agent: "eda-canonical-ir-agent",
-      agentVersion: "1.4.1",
-      adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? "altium-safe-intake" : "unknown",
-      adapterVersion: "1.4.1",
+      agentVersion: "1.5.0",
+      adapterId: detection.sourceFormat === "kicad" ? "kicad-sexpr" : jlcPro ? "jlceda-pro-records" : detection.sourceFormat === "easyeda" ? "easyeda-standard-json" : detection.sourceFormat === "altium" ? parsed.schematics.length || parsed.pcbs.length ? "altium-cfb-records" : "altium-safe-intake" : "unknown",
+      adapterVersion: "1.5.0",
       deterministic: true,
       llmUsedForParsing: false,
       roundTripReadiness: "read_only",
@@ -317,4 +317,3 @@ export async function parseEdaProject(inputs: InputAsset[], intakeDiagnostics: P
     },
   };
 }
-

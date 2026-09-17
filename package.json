@@ -12,7 +12,7 @@
     "dev:vercel": "next dev",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run test:parser && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:parser": "node --import tsx --test tests/parser-regressions.test.ts tests/knowledge.test.ts tests/viewer-interactions.test.tsx tests/bom-mapping.test.ts",
+    "test:parser": "node --import tsx --test tests/altium-native.test.ts tests/parser-regressions.test.ts tests/knowledge.test.ts tests/viewer-interactions.test.tsx tests/bom-mapping.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern schematic-reconstruction",
     "postinstall": "node scripts/prepare-pdf.mjs",
     "test:knowledge": "node --import tsx --test tests/knowledge.test.ts",
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "cfb": "^1.2.2",
     "fflate": "^0.8.3",
     "fzstd": "^0.1.1",
     "lucide-react": "^1.25.0",

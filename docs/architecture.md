@@ -10,7 +10,7 @@ Raw Source
 Source Model
   ├─ KiCad S-expression AST + Source Span
   ├─ EasyEDA JSON / JSONL object tree + raw Shape
-  └─ Altium project metadata / opaque CFB asset
+  └─ Altium project metadata / partial native CFB SchDoc + PcbDoc records
         ↓
 Canonical IR 1.0.0
   ├─ Project / Document Graph

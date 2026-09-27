@@ -89,11 +89,20 @@ test('AD Comment/value, pin type and designator appear beside symbol body',async
   '|RECORD=41|OwnerIndex=0|Name=Comment|Text=10k|Location.X=85|Location.Y=105',
   '|RECORD=14|OwnerIndex=0|Location.X=95|Location.Y=95|Corner.X=105|Corner.Y=105',
   '|RECORD=2|OwnerIndex=0|Electrical=4|PinConglomerate=0|PinLength=10|Location.X=95|Location.Y=100|Designator=1|Name=~',
+  '|RECORD=17|Text=GND|Style=6|Location.X=120|Location.Y=100|Orientation=3',
+  '|RECORD=17|Text=VDD|Style=1|Location.X=120|Location.Y=80|Orientation=1',
  ]);
  const bundle=await parseEdaProject([{path:'resistors.SchDoc',bytes}]);const part=bundle.parts[0],sch=bundle.schematics[0];
  assert.equal(part.reference,'R1');assert.equal(part.value,'10k');assert.equal(sch.pins[0].electricalType,'passive');
  assert.ok(sch.texts!.find(t=>t.kind==='reference'&&t.text==='R1'&&Number(t.position.x)>26));
  assert.ok(sch.texts!.find(t=>t.kind==='value'&&t.text==='10k'&&Number(t.position.x)>26));
+ const ref=sch.texts!.find(t=>t.kind==='reference')!,value=sch.texts!.find(t=>t.kind==='value')!;
+ assert.ok(Number(ref.position.y)<Number(value.position.y));
+ assert.ok(sch.labels.some(l=>l.name==='GND'&&l.shape==='ground'&&l.rotation==='270'));
+ assert.ok(sch.labels.some(l=>l.name==='VDD'&&l.shape==='arrow'&&l.rotation==='90'));
+ const {renderToStaticMarkup}=await import('react-dom/server');const {SchematicViewer}=await import('../components/EdaViewers');
+ const {createElement}=await import('react');const html=renderToStaticMarkup(createElement(SchematicViewer,{bundle}));
+ assert.match(html,/class="schematic-power-port" data-shape="ground"/);assert.match(html,/class="schematic-power-port" data-shape="arrow"/);
  const {extractDesignAssets}=await import('../lib/design-assets/extract');
  const assets=await extractDesignAssets(bundle,[{path:'resistors.SchDoc',bytes}]);
  assert.match(new TextDecoder().decode(assets.find(a=>a.kind==='symbol')!.file!.bytes),/\(pin passive line/);

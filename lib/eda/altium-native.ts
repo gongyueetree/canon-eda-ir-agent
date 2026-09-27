@@ -57,28 +57,28 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
     } else if (type === "27") sch.wires.push({ id: rid, points: points(), sourceRef: sr });
     else if (type === "29") sch.junctions.push({ id: rid, position: p, sourceRef: sr });
     else if (type === "25" || type === "17") {
-      sch.labels.push({ id: rid, name: r.TEXT || "", kind: type === "17" ? "power" : "local", position: p, textPosition: type === "17" ? pt(Number(p.x), Number(p.y) - 3) : undefined, rotation: type === "17" ? "0" : String(num(r, "ORIENTATION") * 90), size: "1.5", sourceRef: sr });
-      if (type === "17") unsupported.set("power-port-style", (unsupported.get("power-port-style") || 0) + 1);
+      const style=num(r,'STYLE');const ground=type==='17'&&([4,5,6,8,9].includes(style)||(!r.STYLE&&/^(?:[A-Z_]*GND|VSS\d*|EARTH)$/i.test(r.TEXT||'')));
+      sch.labels.push({ id: rid, name: r.TEXT || "", kind: type === "17" ? "power" : "local", shape:type==='17'?(ground?'ground':style===1||style===7?'arrow':style===0?'circle':'bar'):undefined, position: p, rotation: String(num(r, "ORIENTATION") * 90), size: "1.5", sourceRef: sr });
     } else if (["4", "34", "41"].includes(type)) {
       if (r.ISHIDDEN === "T" || (type === "41" && r.NAME?.toUpperCase() !== "COMMENT")) return;
       const text = r.TEXT || (type === "34" ? owner?.reference : type === "41" ? owner?.value : "");
       if (text) sch.texts!.push({ id: rid, symbolUnitId: owner?.symbolUnits[0].id, text, kind: type === "34" ? "reference" : "value", position: p, rotation: String(num(r, "ORIENTATION") * 90), size: "1.5", align: "start" });
     } else if (!["1", "31", "41", "44", "45", "46", "48"].includes(type)) unsupported.set(type, (unsupported.get(type) || 0) + 1);
   });
-  // AD library text positions may sit to the left of the placed body. Keep the
-  // text by its own symbol and put the designator/value next to that body.
+  // AD field coordinates often share a symbol's body or pin wiring. Position
+  // both visible properties together beside the actual drawn body.
   for (const part of components.values()) {
     const unit = part.symbolUnits[0], graphics = sch.graphics!.filter(g => g.symbolUnitId === unit.id && g.points.length > 2);
     const bodyRight = Math.max(Number(unit.position?.x ?? 0), ...graphics.flatMap(g => g.points.map(p => Number(p.x))));
-    const bodyTop = Math.min(Number(unit.position?.y ?? 0), ...graphics.flatMap(g => g.points.map(p => Number(p.y))));
-    const right = bodyRight + 2;
-    for (const [kind, value, dy] of [["reference", part.reference, 0], ["value", part.value, 2.2]] as const) {
+    const ys=graphics.flatMap(g=>g.points.map(p=>Number(p.y)));
+    const centerY=ys.length?(Math.min(...ys)+Math.max(...ys))/2:Number(unit.position?.y??0);
+    const right = bodyRight + 3;
+    for (const [kind, value, dy] of [["reference", part.reference, -1.25], ["value", part.value, 1.25]] as const) {
       if (!value || value === "?") continue;
       const existing = sch.texts!.find(t => t.symbolUnitId === unit.id && t.kind === kind);
       if (existing) {
-        if (Number(existing.position.x) < right) existing.position = pt(right, Number(existing.position.y));
-        existing.rotation = "0";
-      } else sch.texts!.push({ id: `${unit.id}:${kind}`, symbolUnitId: unit.id, text: value, kind, position: pt(right, bodyTop + dy), rotation: "0", size: "1.5", align: "start" });
+        existing.position = pt(right, centerY + dy);existing.rotation = "0";existing.align='start';
+      } else sch.texts!.push({ id: `${unit.id}:${kind}`, symbolUnitId: unit.id, text: value, kind, position: pt(right, centerY + dy), rotation: "0", size: "1.5", align: "start" });
     }
   }
   out.schematics.push(sch);

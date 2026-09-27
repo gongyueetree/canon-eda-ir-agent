@@ -31,7 +31,7 @@ function assetParts(bundle:CanonicalIrBundle):PartIr[]{
  }
  return parts;
 }
-export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputAsset[],mappings:Record<string,BomMapping>={}):Promise<ExtractedAsset[]>{
+export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputAsset[],mappings:Record<string,BomMapping>={},references?:Set<string>):Promise<ExtractedAsset[]>{
  const byPath=new Map(inputs.map(a=>[a.path,a]));
  const libraries=localLibraries(inputs);
  const sourceHashes=new Map(bundle.inventory.map(i=>[i.relativePath,i.sha256]));
@@ -44,6 +44,7 @@ export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputA
  }
  const result:ExtractedAsset[]=[];
  for(const part of assetParts(bundle)){
+  if(references&&!references.has(part.reference))continue;
   const confirmed=Object.values(mappings).find(m=>['VERIFIED','CONFIRMED'].includes(m.status)&&m.selected&&m.query.references.includes(part.reference)&&(!part.footprint||m.query.footprint===part.footprint));
   const mpn=(confirmed?.selected?.mpn||part.mpnRaw||part.value||part.reference).trim();
   const manufacturer=(confirmed?.selected?.manufacturer||part.manufacturerRaw||'').trim();

@@ -650,12 +650,12 @@ export default function EdaWorkbench() {
                 )}
 
                 {activeTab === "schematic" && (
-                  <SchematicViewer bundle={bundle} />
+                  <SchematicViewer bundle={bundle} assets={sourceAssets} />
                 )}
 
                 {activeTab === "pcb" && (
                   <div className="object-grid">
-                    <PcbViewer bundle={bundle} />
+                    <PcbViewer bundle={bundle} assets={sourceAssets} />
                     {bundle.pcbs.map((pcb) => (
                       <article className="panel pcb-card compact-pcb-card" key={pcb.id}>
                         <div className="pcb-card-head"><div className="object-icon pcb"><CircuitBoard size={21} /></div><div><small>PCB IR · mm</small><h3>{pcb.name}</h3></div><span>{pcb.layers.filter((layer) => layer.copper).length} copper layers</span></div>

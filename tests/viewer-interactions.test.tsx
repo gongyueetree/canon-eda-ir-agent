@@ -123,6 +123,28 @@ test('embedded Zstd raw frame is extracted without confusing footprint declarati
  const assets=embeddedModels({path:'board.kicad_pcb',bytes});assert.equal(assets.length,1);assert.equal(assets[0].path,'kicad-embed://right.step');assert.deepEqual(assets[0].bytes,raw);
 });
 
+test('schematic and PCB select a part in their own inspector; PCB wheel zooms and library ZIP is available',async()=>{
+ const {SchematicViewer,PcbViewer}=await import('../components/EdaViewers');
+ const enc=new TextEncoder(),inputs=[
+  {path:'demo.kicad_sch',bytes:enc.encode('(kicad_sch (version 20250114) (lib_symbols (symbol "Demo:Chip" (symbol "Chip_0_1" (rectangle (start -2 -2) (end 2 2))))) (symbol (lib_id "Demo:Chip") (at 20 30 0) (uuid "u1") (unit 1) (property "Reference" "U1") (property "Value" "CHIP") (property "Footprint" "Demo:FP")))')},
+  {path:'demo.kicad_pcb',bytes:enc.encode('(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal)) (footprint "Demo:FP" (layer "F.Cu") (at 20 30) (uuid "f1") (property "Reference" "U1" (at 0 -2)) (property "Value" "CHIP" (at 0 2)) (pad "1" smd rect (at 1 0) (size 2 2) (layers "F.Cu"))))')}
+ ];
+ const bundle=await parseEdaProject(inputs),dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});
+ Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+ const root=createRoot(document.getElementById('root')!);
+ try{
+  await act(async()=>root.render(<PcbViewer bundle={bundle} assets={inputs}/>));
+  const svg=document.querySelector('svg[role="img"]')!;svg.getBoundingClientRect=()=>({x:0,y:0,left:0,top:0,width:1200,height:720,right:1200,bottom:720,toJSON(){}});
+  const wheel=new dom.window.WheelEvent('wheel',{clientX:600,clientY:360,deltaY:-200,bubbles:true,cancelable:true});await act(async()=>svg.dispatchEvent(wheel));
+  assert.ok(wheel.defaultPrevented);assert.match(document.body.textContent!,/135%/);
+  await act(async()=>{(document.querySelector('.pcb-component-hit[data-reference="U1"]') as SVGElement).dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));});
+  assert.ok(document.querySelector('.component-inspector'));assert.match(document.body.textContent!,/下载该器件库 ZIP/);
+  await act(async()=>root.render(<SchematicViewer bundle={bundle} assets={inputs}/>));
+  await act(async()=>{(document.querySelector('.schematic-component-hit[data-reference="U1"]') as SVGElement).dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));});
+  assert.ok(document.querySelector('.component-inspector'));assert.match(document.body.textContent!,/CHIP/);
+ }finally{await act(async()=>root.unmount());dom.window.close();}
+});
+
 test('model placement applies native offset, scale and bottom-side flip',async()=>{
  const {Group,Vector3}=await import('three');const {placeFootprintModel}=await import('../lib/models/load-footprints');
  const fp={reference:'U1',position:{x:'10',y:'20'},rotation:'90',side:'back'} as import('../lib/eda/types').PcbIr['footprints'][number];

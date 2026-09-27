@@ -79,6 +79,9 @@ test('schematic preserves power geometry and paper; wheel, drag and reset operat
   const svg=document.querySelector('svg[role="img"]')!;
   svg.getBoundingClientRect=()=>({x:0,y:0,left:0,top:0,width:1200,height:720,right:1200,bottom:720,toJSON(){}});
   assert.ok(svg.querySelector('.schematic-page-frame'));assert.ok(!document.body.textContent?.includes('打开子页'));
+  const power=svg.querySelector('.schematic-power-port[data-shape="native"]')!;
+  assert.ok(power);assert.equal(power.querySelector('path'),null,'KiCad 原生图形不应再叠加一套电源符号');
+  assert.equal(power.querySelector('text')?.getAttribute('text-anchor'),'middle');
   const wheel=new dom.window.WheelEvent('wheel',{clientX:600,clientY:360,deltaY:-200,bubbles:true,cancelable:true});
   await act(async()=>{svg.dispatchEvent(wheel);});assert.ok(wheel.defaultPrevented);assert.match(document.body.textContent!,/135%/);
   const pointer=(type:string,x:number,y:number)=>{const e=new dom.window.MouseEvent(type,{clientX:x,clientY:y,bubbles:true,button:0});Object.defineProperty(e,'pointerId',{value:1});return e;};

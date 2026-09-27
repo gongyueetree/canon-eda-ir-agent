@@ -590,6 +590,12 @@ td code { color: #718078; font-size: 8px; }
 .design-preview-model .design-preview-empty { background:#dcf3fb; }
 .design-preview-empty span { font-size:12px; }
 .design-preview > details { margin-top:12px; font-size:12px; }
+.design-pin-table { max-height:320px;overflow:auto;padding:8px;border:1px solid #dce8df;border-radius:8px;background:#fff; }
+.design-pin-table summary { position:sticky;top:-8px;z-index:1;background:#fff;padding:7px 4px;color:#29473d;font-weight:700;cursor:pointer; }
+.design-pin-table table { width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px; }
+.design-pin-table th,.design-pin-table td { padding:7px 5px;text-align:left;border-bottom:1px solid #e6ede8;overflow-wrap:anywhere; }
+.design-pin-table th:first-child { width:19%; }.design-pin-table th:last-child { width:30%; }
+.pin-type { display:inline-block;padding:2px 6px;border-radius:5px;background:#eaf2e5;color:#315d43;white-space:nowrap; }
 .component-inspector .design-preview h4 { font-size:15px;gap:6px;margin:0 0 8px; }
 .component-inspector .design-preview h4 svg { width:20px;height:20px; }
 .component-inspector .design-preview .library-viewer .viewer-canvas svg { max-height:270px; }

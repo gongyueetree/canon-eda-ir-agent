@@ -381,6 +381,7 @@ function parseSchematic(
           id: stableId("label", schematicId, nativeId, "power"),
           name,
           kind: "power",
+          shape: "native",
           textPosition:textAt?point(textAt[0],textAt[1]):undefined,
           rotation:textAt?String((Number(textAt[2])+Number(at[2]))%180):"0",
           position: point(x, y)!,
@@ -559,6 +560,7 @@ function parseSchematic(
 }
 
 type LegacySymbolPinDefinition = SymbolPinDefinition & { unit: number };
+const legacyElectricalTypes:Record<string,string>={I:'input',O:'output',B:'bidirectional',T:'tri_state',P:'passive',U:'unspecified',W:'power_in',w:'power_out',C:'open_collector',E:'open_emitter',N:'no_connect',F:'free'};
 type LegacySymbolDefinition = { libraryId: string; pins: LegacySymbolPinDefinition[]; drawings: string[] };
 
 function cleanNumber(value: number): string {
@@ -600,6 +602,7 @@ function parseLegacySymbolDefinitions(inputs: InputAsset[]): Map<string, LegacyS
         x: tokens[3],
         y: tokens[4],
         unit: Number(tokens[9]) || 0,
+        electricalType: legacyElectricalTypes[tokens[11]]??'unspecified',
       });
     }
   }
@@ -747,6 +750,7 @@ function parseLegacySchematic(
           id: stableId("label", schematicId, nativeId, "power"),
           name: value || libraryId.replace(/^.*power[:_]/i, "") || reference,
           kind: "power",
+          shape: "native",
           textPosition:fieldLayout?point(legacyToMillimeters(fieldLayout.x),legacyToMillimeters(fieldLayout.y)):undefined,
           size:valueField?legacyToMillimeters(valueField[4]):undefined,
           rotation:fieldLayout?.rotation??"0",

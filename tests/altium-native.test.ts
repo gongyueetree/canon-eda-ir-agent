@@ -108,7 +108,11 @@ test('AD Comment/value, pin type and designator appear beside symbol body',async
   const text=port.querySelector('text')!;assert.equal(text.getAttribute('text-anchor'),'middle');
   assert.equal(text.getAttribute('transform'),null);
   const vector=port.querySelector('g[transform]')!.getAttribute('transform')!.match(/translate\(([-\d.]+) ([-\d.]+)\) rotate\(([-\d.]+)\)/)!;
-  if(Math.abs(Number(vector[3]))===90||Math.abs(Number(vector[3]))===270)assert.ok(Math.abs(Number(text.getAttribute('x'))-Number(vector[1]))<.001);
+  if(Math.abs(Number(vector[3]))===90||Math.abs(Number(vector[3]))===270){
+   assert.ok(Math.abs(Number(text.getAttribute('x'))-Number(vector[1]))<.001);
+   const size=Number(text.getAttribute('font-size'));
+   assert.ok(Math.abs(Number(text.getAttribute('y'))-Number(vector[2]))<size*(port.getAttribute('data-shape')==='ground'?3:2.2));
+  }
  }
  const {extractDesignAssets}=await import('../lib/design-assets/extract');
  const assets=await extractDesignAssets(bundle,[{path:'resistors.SchDoc',bytes}]);

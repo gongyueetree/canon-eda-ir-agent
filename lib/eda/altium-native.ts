@@ -76,7 +76,7 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
     const bodyRight = Math.max(Number(unit.position?.x ?? 0), ...bodyPoints.map(p => Number(p.x)));
     const ys=bodyPoints.map(p=>Number(p.y));
     const centerY=ys.length?(Math.min(...ys)+Math.max(...ys))/2:Number(unit.position?.y??0);
-    const right = bodyRight + 3;
+    const right = bodyRight + 1.2;
     for (const [kind, value, dy] of [["reference", part.reference, -1.25], ["value", part.value, 1.25]] as const) {
       if (!value || value === "?") continue;
       const existing = sch.texts!.find(t => t.symbolUnitId === unit.id && t.kind === kind);

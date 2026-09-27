@@ -142,6 +142,9 @@ test('library gallery renders three slots, pin names, centered pads and clears a
   await act(async()=>root.render(<DesignAssetGallery assets={assets}/>));await settle();
   assert.equal(document.querySelectorAll('.design-gallery-column').length,3);
   assert.match(document.querySelector('.schematic-canvas')!.textContent!,/IN/);
+  assert.match(document.querySelector('.design-preview-symbol .design-pin-table')!.textContent!,/电气属性/);
+  assert.match(document.querySelector('.design-preview-symbol .design-pin-table')!.textContent!,/输入/);
+  assert.doesNotMatch(document.querySelector('.schematic-canvas')!.textContent!,/输入/);
   assert.match(document.querySelector('.design-preview-model')!.textContent!,/暂无3D 模型/);
   assert.equal(document.querySelector('.pcb-pad text')!.getAttribute('text-anchor'),'middle');
   assert.ok(document.querySelector('.pcb-source-graphics'),'standalone footprints must have a preview origin');
@@ -151,6 +154,22 @@ test('library gallery renders three slots, pin names, centered pads and clears a
   for(let i=0;i<30&&!document.querySelector('[role="alert"]');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
   assert.ok(document.querySelector('[role="alert"]'));
   assert.equal(document.querySelector('.schematic-canvas'),null,'failed replacement must not retain old symbol');
+ }finally{await act(async()=>root.unmount());dom.window.close();}
+});
+
+test('legacy KiCad library preview lists input and output electrical properties below the symbol',async()=>{
+ const {JSDOM}=await import('jsdom');const {act}=await import('react');const {createRoot}=await import('react-dom/client');
+ const {DesignAssetPreview}=await import('../components/DesignAssetPreview');
+ const lib='EESchema-LIBRARY Version 2.4\n#encoding utf-8\nDEF Demo U 0 40 Y Y 1 F N\nDRAW\nX IN 1 -300 0 100 R 50 50 1 1 I\nX OUT 2 300 0 100 L 50 50 1 1 O\nENDDRAW\nENDDEF\n#End Library\n';
+ const example=(await extractDesignAssets(await parseEdaProject(fixture()),fixture())).find(a=>a.kind==='symbol')!;
+ const asset={...example,file:{path:'Demo.lib',bytes:enc.encode(lib)}};
+ const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost'});Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});
+ const root=createRoot(document.getElementById('root')!);
+ try{await act(async()=>root.render(<DesignAssetPreview asset={asset}/>));
+  for(let i=0;i<60&&!document.querySelector('.design-pin-table');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+  const rows=[...document.querySelectorAll('.design-pin-table tbody tr')];assert.equal(rows.length,2);
+  assert.deepEqual(rows.map(r=>r.lastElementChild?.textContent).sort(),['输入','输出'].sort());
+  assert.doesNotMatch(document.querySelector('.schematic-canvas')!.textContent!,/输入|输出/);
  }finally{await act(async()=>root.unmount());dom.window.close();}
 });
 

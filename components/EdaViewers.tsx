@@ -251,8 +251,12 @@ export function SchematicViewer({ bundle, library = false, assets = [] }: { bund
               }
               const size=Number(label.size??1.27)*scale;
               if(label.kind==="power"){
+                // KiCad already provides the power symbol's native geometry and
+                // Value placement. Drawing another port here doubles the glyph.
+                if(label.shape==='native')return <g key={label.id} className="schematic-power-port" data-shape="native"><text x={p.x} y={p.y} textAnchor="middle" dominantBaseline="central" fill="#a83e54" fontSize={size}>{label.name}</text></g>;
                 const anchor=geometry.project(numericPoint(label.position)!),length=Math.max(12,size*1.5),ground=label.shape==='ground';
-                const distance=length+size*((ground?1.7:1)+label.name.length*.32),direction=-angle*Math.PI/180;
+                const vertical=angle===90||angle===270;
+                const distance=length+size*((ground?1.05:.45)+(vertical?0:label.name.length*.3)),direction=-angle*Math.PI/180;
                 const labelX=anchor.x+Math.cos(direction)*distance,labelY=anchor.y+Math.sin(direction)*distance;
                 return <g key={label.id} className="schematic-power-port" data-shape={label.shape??'bar'}>
                   <g transform={`translate(${anchor.x} ${anchor.y}) rotate(${-angle})`} stroke="#a83e54" strokeWidth={Math.max(1,size*.09)} fill="none">

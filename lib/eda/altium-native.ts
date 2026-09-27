@@ -68,9 +68,13 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
   // AD field coordinates often share a symbol's body or pin wiring. Position
   // both visible properties together beside the actual drawn body.
   for (const part of components.values()) {
-    const unit = part.symbolUnits[0], graphics = sch.graphics!.filter(g => g.symbolUnitId === unit.id && g.points.length > 2);
-    const bodyRight = Math.max(Number(unit.position?.x ?? 0), ...graphics.flatMap(g => g.points.map(p => Number(p.x))));
-    const ys=graphics.flatMap(g=>g.points.map(p=>Number(p.y)));
+    const unit = part.symbolUnits[0], pins=sch.pins.filter(p=>p.symbolUnitId===unit.id);
+    const graphics = sch.graphics!.filter(g => g.symbolUnitId === unit.id && !pins.some(pin=>
+      g.points.length===2 && [pin.bodyPosition,pin.position].every((point,i)=>point?.x===g.points[i]?.x&&point?.y===g.points[i]?.y)));
+    const bodyPoints=graphics.flatMap(g=>g.points);
+    if(!bodyPoints.length)bodyPoints.push(...pins.map(pin=>pin.bodyPosition??pin.position));
+    const bodyRight = Math.max(Number(unit.position?.x ?? 0), ...bodyPoints.map(p => Number(p.x)));
+    const ys=bodyPoints.map(p=>Number(p.y));
     const centerY=ys.length?(Math.min(...ys)+Math.max(...ys))/2:Number(unit.position?.y??0);
     const right = bodyRight + 3;
     for (const [kind, value, dy] of [["reference", part.reference, -1.25], ["value", part.value, 1.25]] as const) {

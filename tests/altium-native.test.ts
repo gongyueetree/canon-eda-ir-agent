@@ -103,9 +103,33 @@ test('AD Comment/value, pin type and designator appear beside symbol body',async
  const {renderToStaticMarkup}=await import('react-dom/server');const {SchematicViewer}=await import('../components/EdaViewers');
  const {createElement}=await import('react');const html=renderToStaticMarkup(createElement(SchematicViewer,{bundle}));
  assert.match(html,/class="schematic-power-port" data-shape="ground"/);assert.match(html,/class="schematic-power-port" data-shape="arrow"/);
+ const {JSDOM}=await import('jsdom');const doc=new JSDOM(html).window.document;
+ for(const port of doc.querySelectorAll('.schematic-power-port')){
+  const text=port.querySelector('text')!;assert.equal(text.getAttribute('text-anchor'),'middle');
+  assert.equal(text.getAttribute('transform'),null);
+  const vector=port.querySelector('g[transform]')!.getAttribute('transform')!.match(/translate\(([-\d.]+) ([-\d.]+)\) rotate\(([-\d.]+)\)/)!;
+  if(Math.abs(Number(vector[3]))===90||Math.abs(Number(vector[3]))===270)assert.ok(Math.abs(Number(text.getAttribute('x'))-Number(vector[1]))<.001);
+ }
  const {extractDesignAssets}=await import('../lib/design-assets/extract');
  const assets=await extractDesignAssets(bundle,[{path:'resistors.SchDoc',bytes}]);
  assert.match(new TextDecoder().decode(assets.find(a=>a.kind==='symbol')!.file!.bytes),/\(pin passive line/);
+});
+
+test('two-point capacitor plates define the body boundary, without extending fields to pin endpoints',async()=>{
+ const bytes=document([
+  '|HEADER=Protel',
+  '|RECORD=1|LibReference=C|CurrentPartId=1|Location.X=100|Location.Y=100',
+  '|RECORD=34|OwnerIndex=0|Name=Designator|Text=C23|Location.X=90|Location.Y=100',
+  '|RECORD=41|OwnerIndex=0|Name=Comment|Text=100nF|Location.X=90|Location.Y=95',
+  '|RECORD=13|OwnerIndex=0|Location.X=95|Location.Y=99|Corner.X=105|Corner.Y=99',
+  '|RECORD=13|OwnerIndex=0|Location.X=95|Location.Y=101|Corner.X=105|Corner.Y=101',
+  '|RECORD=2|OwnerIndex=0|PinConglomerate=0|PinLength=50|Location.X=100|Location.Y=100|Designator=1',
+ ]);
+ const {schematics}=await parseEdaProject([{path:'capacitor.SchDoc',bytes}]);
+ const fields=schematics[0].texts!.filter(t=>t.kind==='reference'||t.kind==='value');
+ assert.equal(fields.length,2);assert.ok(fields.every(t=>Number(t.position.x)>105*.254));
+ assert.ok(fields.every(t=>Number(t.position.x)<120*.254));
+ assert.equal(fields[0].position.x,fields[1].position.x);
 });
 
 test('AD embedded PCB model resolves to the same actual STEP asset as the board viewer',async()=>{

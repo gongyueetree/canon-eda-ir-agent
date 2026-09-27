@@ -252,10 +252,14 @@ export function SchematicViewer({ bundle, library = false, assets = [] }: { bund
               const size=Number(label.size??1.27)*scale;
               if(label.kind==="power"){
                 const anchor=geometry.project(numericPoint(label.position)!),length=Math.max(12,size*1.5),ground=label.shape==='ground';
-                return <g key={label.id} className="schematic-power-port" data-shape={label.shape??'bar'} transform={`translate(${anchor.x} ${anchor.y}) rotate(${-angle})`} stroke="#a83e54" strokeWidth={Math.max(1,size*.09)} fill="none">
-                  <path d={`M 0 0 H ${length}`} />
-                  {ground?<path d={`M ${length} ${-size*.8} V ${size*.8} M ${length+size*.38} ${-size*.55} V ${size*.55} M ${length+size*.76} ${-size*.25} V ${size*.25}`} />:label.shape==='arrow'?<path d={`M ${length-size*.6} ${-size*.6} L ${length} 0 L ${length-size*.6} ${size*.6}`}/>:label.shape==='circle'?<circle cx={length} cy="0" r={size*.48}/>:<path d={`M ${length} ${-size*.65} V ${size*.65}`}/>}
-                  <text x={length+size*(ground?1.7:1)} y="0" textAnchor="start" dominantBaseline="central" stroke="none" fill="#a83e54" fontSize={size} transform={angle===90||angle===270?`rotate(${angle} ${length+size*(ground?1.7:1)} 0)`:undefined}>{label.name}</text>
+                const distance=length+size*((ground?1.7:1)+label.name.length*.32),direction=-angle*Math.PI/180;
+                const labelX=anchor.x+Math.cos(direction)*distance,labelY=anchor.y+Math.sin(direction)*distance;
+                return <g key={label.id} className="schematic-power-port" data-shape={label.shape??'bar'}>
+                  <g transform={`translate(${anchor.x} ${anchor.y}) rotate(${-angle})`} stroke="#a83e54" strokeWidth={Math.max(1,size*.09)} fill="none">
+                    <path d={`M 0 0 H ${length}`} />
+                    {ground?<path d={`M ${length} ${-size*.8} V ${size*.8} M ${length+size*.38} ${-size*.55} V ${size*.55} M ${length+size*.76} ${-size*.25} V ${size*.25}`} />:label.shape==='arrow'?<path d={`M ${length-size*.6} ${-size*.6} L ${length} 0 L ${length-size*.6} ${size*.6}`}/>:label.shape==='circle'?<circle cx={length} cy="0" r={size*.48}/>:<path d={`M ${length} ${-size*.65} V ${size*.65}`}/>}
+                  </g>
+                  <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="central" fill="#a83e54" fontSize={size}>{label.name}</text>
                 </g>;
               }
               const vertical=angle===90||angle===270;

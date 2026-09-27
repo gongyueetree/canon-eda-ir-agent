@@ -80,3 +80,38 @@ test('Altium source geometries export reviewable KiCad symbol and footprint asse
  // A folder full of KiCad libraries must not displace the actual AD drawings.
  const libraries=Array.from({length:5},(_,i)=>({path:`lib${i}.kicad_sym`,bytes:symbol.file!.bytes}));assert.equal((await parseEdaProject([...inputs,...libraries])).project.sourceFormat,'altium');
 });
+
+test('AD Comment/value, pin type and designator appear beside symbol body',async()=>{
+ const bytes=document([
+  '|HEADER=Protel',
+  '|RECORD=1|LibReference=R|CurrentPartId=1|Location.X=100|Location.Y=100',
+  '|RECORD=34|OwnerIndex=0|Name=Designator|Text=R1|Location.X=85|Location.Y=95',
+  '|RECORD=41|OwnerIndex=0|Name=Comment|Text=10k|Location.X=85|Location.Y=105',
+  '|RECORD=14|OwnerIndex=0|Location.X=95|Location.Y=95|Corner.X=105|Corner.Y=105',
+  '|RECORD=2|OwnerIndex=0|Electrical=4|PinConglomerate=0|PinLength=10|Location.X=95|Location.Y=100|Designator=1|Name=~',
+ ]);
+ const bundle=await parseEdaProject([{path:'resistors.SchDoc',bytes}]);const part=bundle.parts[0],sch=bundle.schematics[0];
+ assert.equal(part.reference,'R1');assert.equal(part.value,'10k');assert.equal(sch.pins[0].electricalType,'passive');
+ assert.ok(sch.texts!.find(t=>t.kind==='reference'&&t.text==='R1'&&Number(t.position.x)>26));
+ assert.ok(sch.texts!.find(t=>t.kind==='value'&&t.text==='10k'&&Number(t.position.x)>26));
+ const {extractDesignAssets}=await import('../lib/design-assets/extract');
+ const assets=await extractDesignAssets(bundle,[{path:'resistors.SchDoc',bytes}]);
+ assert.match(new TextDecoder().decode(assets.find(a=>a.kind==='symbol')!.file!.bytes),/\(pin passive line/);
+});
+
+test('AD embedded PCB model resolves to the same actual STEP asset as the board viewer',async()=>{
+ const {zlibSync}=await import('fflate');const {embeddedModels,resolveModelPath}=await import('../lib/models/footprints');
+ const c=CFB.utils.cfb_new();
+ CFB.utils.cfb_add(c,'Board6/Data',block('|VX0=0mil|VY0=0mil|VX1=100mil|VY1=0mil|VX2=100mil|VY2=100mil'));
+ CFB.utils.cfb_add(c,'Components6/Data',block('|SOURCEDESIGNATOR=C1|SOURCELIBREFERENCE=C|PATTERN=Capacitor_SMD:C_0603|X=10mm|Y=20mm|ROTATION=0|LAYER=TOP'));
+ CFB.utils.cfb_add(c,'Models/Data',block('|ID={A}|NAME=c0603.step|EMBED=TRUE'));
+ CFB.utils.cfb_add(c,'Models/0',zlibSync(Buffer.from('ISO-10303-21;\nDATA;\nENDSEC;\nEND-ISO-10303-21;')));
+ const props=block('|MODELID={A}|MODEL.EMBED=TRUE|MODEL.2D.X=10mm|MODEL.2D.Y=20mm|MODEL.3D.DZ=0mm|BODYPROJECTION=0');
+ const body=Buffer.concat([Buffer.alloc(18),props]),header=Buffer.alloc(5);header[0]=12;header.writeUInt32LE(body.length,1);
+ CFB.utils.cfb_add(c,'ComponentBodies6/Data',Buffer.concat([header,body]));
+ const input={path:'board/project.PcbDoc',bytes:new Uint8Array(CFB.write(c,{type:'buffer'}))},bundle=await parseEdaProject([input]);
+ const fp=bundle.pcbs[0].footprints[0];assert.equal(fp.reference,'C1');assert.ok(fp.models?.[0]);
+ const boardModel=resolveModelPath(fp.models![0].path,bundle.pcbs[0],embeddedModels(input));assert.ok(boardModel.asset);
+ const {extractDesignAssets}=await import('../lib/design-assets/extract');const extracted=await extractDesignAssets(bundle,[input]);
+ const model=extracted.find(a=>a.kind==='model'&&a.file);assert.ok(model);assert.deepEqual(model.file!.bytes,boardModel.asset!.bytes);
+});

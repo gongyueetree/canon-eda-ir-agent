@@ -13,6 +13,7 @@ const pt = (x: number, y: number): IrPoint => ({ x: String(Number(x.toFixed(7)))
 const coord = (p: Props, k: string) => (num(p, k) + num(p, `${k}_FRAC`) / 100000) * .254;
 const pos = (p: Props, x = "LOCATION.X", y = "LOCATION.Y") => pt(coord(p, x), -coord(p, y));
 const decoder = new TextDecoder("windows-1252");
+const altiumPinTypes = ["input", "bidirectional", "output", "open_collector", "passive", "tri_state", "open_emitter", "power_in"];
 export { altiumBlocks, altiumProperties } from "./altium-records";
 function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) {
   const records = altiumBlocks(data).slice(1).map(altiumProperties);
@@ -22,12 +23,12 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
   records.forEach((r, index) => {
     if (r.RECORD !== "1") return;
     const children = records.filter(p => p.OWNERINDEX === String(index));
-    const fields = Object.fromEntries(children.filter(p => ["34", "41"].includes(p.RECORD)).map(p => [p.NAME, p.TEXT ?? ""]));
+    const fields = Object.fromEntries(children.filter(p => ["34", "41"].includes(p.RECORD) && p.NAME).map(p => [p.NAME.toUpperCase(), p.TEXT ?? ""]));
     if(r.LIBREFERENCE)fields.lib_id=r.LIBREFERENCE;
     const partId = stableId("part", id, String(index));
-    const part: PartIr = { id: partId, logicalPartKey: r.UNIQUEID || partId, reference: fields.Designator || "?", value: fields.Comment || r.LIBREFERENCE || "", fields, manufacturerRaw: fields.Manufacturer, mpnRaw: fields["Manufacturer Part Number"] || fields.MPN, variantStatus: "unknown", pinPadMap: [], symbolUnits: [{ id: `${partId}:unit`, unit: num(r, "CURRENTPARTID") || 1, position: pos(r), rotation: "0" }], sourceRefs: [{ ...sourceRef(asset.id, asset.relativePath), nativeId: String(index) }] };
-    part.manufacturerRaw ||= fields["Manufacturer 1"];
-    part.mpnRaw ||= fields["Manufacturer Part Number 1"];
+    const part: PartIr = { id: partId, logicalPartKey: r.UNIQUEID || partId, reference: fields.DESIGNATOR || r.DESIGNATOR || "?", value: fields.COMMENT || r.COMMENT || r.LIBREFERENCE || "", fields, manufacturerRaw: fields.MANUFACTURER, mpnRaw: fields["MANUFACTURER PART NUMBER"] || fields.MPN, variantStatus: "unknown", pinPadMap: [], symbolUnits: [{ id: `${partId}:unit`, unit: num(r, "CURRENTPARTID") || 1, position: pos(r), rotation: "0" }], sourceRefs: [{ ...sourceRef(asset.id, asset.relativePath), nativeId: String(index) }] };
+    part.manufacturerRaw ||= fields["MANUFACTURER 1"];
+    part.mpnRaw ||= fields["MANUFACTURER PART NUMBER 1"];
     components.set(index, part); out.parts.push(part); sch.symbolInstanceIds.push(part.symbolUnits[0].id);
   });
   const unsupported = new Map<string, number>();
@@ -43,7 +44,8 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
       const angle = (num(r, "PINCONGLOMERATE") & 3) * Math.PI / 2, length = coord(r, "PINLENGTH");
       const end = pt(Number(p.x) + length * Math.cos(angle), Number(p.y) - length * Math.sin(angle));
       if (!(num(r, "PINCONGLOMERATE") & 4)) graphic([p, end]);
-      sch.pins.push({ id: rid, partId: owner.id, symbolUnitId: unit, reference: owner.reference, number: r.DESIGNATOR || "", name: r.NAME || "", position: end, bodyPosition:p, hidden:!!(num(r,"PINCONGLOMERATE")&4), sourceRef: sr });
+      const electrical = r.ELECTRICAL === undefined ? undefined : altiumPinTypes[Number(r.ELECTRICAL)] || "unspecified";
+      sch.pins.push({ id: rid, partId: owner.id, symbolUnitId: unit, reference: owner.reference, number: r.DESIGNATOR || "", name: r.NAME || "", electricalType: electrical, position: end, bodyPosition:p, hidden:!!(num(r,"PINCONGLOMERATE")&4), sourceRef: sr });
     } else if (["6", "7"].includes(type)) graphic(points(), type === "7");
     else if (type === "13") graphic([p, pos(r, "CORNER.X", "CORNER.Y")]);
     else if (type === "14") { const q = pos(r, "CORNER.X", "CORNER.Y"); graphic([p, pt(Number(q.x), Number(p.y)), q, pt(Number(p.x), Number(q.y))], true); }
@@ -58,10 +60,27 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
       sch.labels.push({ id: rid, name: r.TEXT || "", kind: type === "17" ? "power" : "local", position: p, textPosition: type === "17" ? pt(Number(p.x), Number(p.y) - 3) : undefined, rotation: type === "17" ? "0" : String(num(r, "ORIENTATION") * 90), size: "1.5", sourceRef: sr });
       if (type === "17") unsupported.set("power-port-style", (unsupported.get("power-port-style") || 0) + 1);
     } else if (["4", "34", "41"].includes(type)) {
-      if (r.ISHIDDEN === "T" || !r.TEXT || (type === "41" && r.NAME !== "Comment")) return;
-      sch.texts!.push({ id: rid, symbolUnitId: owner?.symbolUnits[0].id, text: r.TEXT, kind: type === "34" ? "reference" : "value", position: p, rotation: String(num(r, "ORIENTATION") * 90), size: "1.5", align: "start" });
+      if (r.ISHIDDEN === "T" || (type === "41" && r.NAME?.toUpperCase() !== "COMMENT")) return;
+      const text = r.TEXT || (type === "34" ? owner?.reference : type === "41" ? owner?.value : "");
+      if (text) sch.texts!.push({ id: rid, symbolUnitId: owner?.symbolUnits[0].id, text, kind: type === "34" ? "reference" : "value", position: p, rotation: String(num(r, "ORIENTATION") * 90), size: "1.5", align: "start" });
     } else if (!["1", "31", "41", "44", "45", "46", "48"].includes(type)) unsupported.set(type, (unsupported.get(type) || 0) + 1);
   });
+  // AD library text positions may sit to the left of the placed body. Keep the
+  // text by its own symbol and put the designator/value next to that body.
+  for (const part of components.values()) {
+    const unit = part.symbolUnits[0], graphics = sch.graphics!.filter(g => g.symbolUnitId === unit.id && g.points.length > 2);
+    const bodyRight = Math.max(Number(unit.position?.x ?? 0), ...graphics.flatMap(g => g.points.map(p => Number(p.x))));
+    const bodyTop = Math.min(Number(unit.position?.y ?? 0), ...graphics.flatMap(g => g.points.map(p => Number(p.y))));
+    const right = bodyRight + 2;
+    for (const [kind, value, dy] of [["reference", part.reference, 0], ["value", part.value, 2.2]] as const) {
+      if (!value || value === "?") continue;
+      const existing = sch.texts!.find(t => t.symbolUnitId === unit.id && t.kind === kind);
+      if (existing) {
+        if (Number(existing.position.x) < right) existing.position = pt(right, Number(existing.position.y));
+        existing.rotation = "0";
+      } else sch.texts!.push({ id: `${unit.id}:${kind}`, symbolUnitId: unit.id, text: value, kind, position: pt(right, bodyTop + dy), rotation: "0", size: "1.5", align: "start" });
+    }
+  }
   out.schematics.push(sch);
   out.nets.push(...buildConnectivity(sch, sch.pins.map(p => ({ ...p, pin: p.number, x: p.position.x, y: p.position.y })), out.diagnostics));
   out.recognized += records.length; out.normalized += records.length - [...unsupported.values()].reduce((a, b) => a + b, 0);

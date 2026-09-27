@@ -139,6 +139,17 @@ test('display groups collapse repeated candidate placements by project, model an
  assert.equal(groupDesignAssets([...assets,...secondProject]).length,2);
 });
 
+test('PCB-only passives are included, while test points and board tooling are excluded',async()=>{
+ const pcb='(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal)) '+[
+  ['R1','10k','Resistor_SMD:R_0603'],['C1','100n','Capacitor_SMD:C_0603'],
+  ['TP1','TestPoint','TestPoint:TestPoint_Pad'],['H1','Hole_3mm_PTH','MountingHole:MountingHole_3mm_Pad'],
+ ].map(([ref,value,name],i)=>`(footprint "${name}" (layer "F.Cu") (at ${i*10} 20) (uuid "fp${i}") (property "Reference" "${ref}") (property "Value" "${value}") (pad "1" smd circle (at 0 0) (size 1 1) (layers "F.Cu")))`).join(' ') + ')';
+ const inputs=[{path:'only.kicad_pcb',bytes:enc.encode(pcb)}],bundle=await parseEdaProject(inputs);
+ const assets=await extractDesignAssets(bundle,inputs);const refs=new Set(assets.flatMap(a=>a.origins.map(o=>o.reference)));
+ assert.deepEqual([...refs].sort(),['C1','R1']);
+ assert.ok(assets.some(a=>a.kind==='footprint'&&a.origins.some(o=>o.reference==='C1')&&a.file));
+});
+
 test('preview opens inside the deduplicated component card and can be closed in place',async()=>{
  const {JSDOM}=await import('jsdom');const {act}=await import('react');const {createRoot}=await import('react-dom/client');const {DesignAssetWorkbench}=await import('../components/DesignAssetWorkbench');
  const dom=new JSDOM('<div id="root"></div>');Object.assign(globalThis,{window:dom.window,document:dom.window.document,IS_REACT_ACT_ENVIRONMENT:true});

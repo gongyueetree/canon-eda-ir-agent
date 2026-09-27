@@ -13,6 +13,24 @@ const enc=new TextEncoder();
 export async function candidateId(asset:Pick<ExtractedAsset,'mpn'|'manufacturer'|'kind'|'fingerprint'|'identityConfirmed'|'identityScope'|'origins'>){return sha256(enc.encode(JSON.stringify([asset.identityConfirmed?identityKey(asset.manufacturer,asset.mpn):['unconfirmed',asset.origins[0]?.bundleId,asset.identityScope,asset.mpn],asset.kind,asset.fingerprint])));}
 export async function identify(asset:ExtractedAsset,mpn:string,manufacturer:string):Promise<ExtractedAsset>{const updated={...asset,mpn:mpn.trim(),manufacturer:manufacturer.trim(),identityConfirmed:!!mpn.trim()};return {...updated,id:await candidateId(updated)};}
 export function mergeAssets(assets:ExtractedAsset[]):ExtractedAsset[]{const out=new Map<string,ExtractedAsset>();for(const a of assets){const old=out.get(a.id);if(!old){out.set(a.id,{...a,origins:[...a.origins]});continue;}const origins=new Map([...old.origins,...a.origins].map(o=>[originKey(o),o]));old.origins=[...origins.values()];old.warnings=[...new Set([...old.warnings,...a.warnings])];}return [...out.values()];}
+export function isComponentAsset(part:Pick<PartIr,'reference'|'value'|'footprint'>):boolean{
+ const ref=part.reference.trim(),name=`${part.value} ${part.footprint??''}`;
+ return !!ref && ref!=='?' && !/^#|^(?:TP|TEST|VIA|FID|MH|HOLE|MP)\d*$/i.test(ref) && !/(?:^|[:_\s-])(?:TestPoint|MountingHole|Fiducial|ToolingHole|Via)(?:$|[_\s-])/i.test(name);
+}
+function assetParts(bundle:CanonicalIrBundle):PartIr[]{
+ const parts=bundle.parts.filter(isComponentAsset);
+ // Converted or PCB-only projects may have no matching schematic instance.
+ // Keep actual placed components (including R/C/L) without inventing symbols.
+ const linked=new Set(parts.map(p=>p.footprintInstanceId).filter(Boolean));
+ const refs=new Set(parts.map(p=>p.reference));
+ for(const pcb of bundle.pcbs)for(const fp of pcb.footprints){
+  if(linked.has(fp.id)||refs.has(fp.reference)||!isComponentAsset({reference:fp.reference,value:fp.value,footprint:fp.libraryIdentifier}))continue;
+  const ref=fp.reference,source=fp.sourceRef;
+  parts.push({id:`pcb-part:${fp.id}`,logicalPartKey:fp.id,reference:ref,value:fp.value||fp.libraryIdentifier||ref,fields:{},variantStatus:'unknown',pinPadMap:[],symbolUnits:[],footprint:fp.libraryIdentifier,footprintInstanceId:fp.id,sourceRefs:[source]});
+  linked.add(fp.id);refs.add(ref);
+ }
+ return parts;
+}
 export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputAsset[],mappings:Record<string,BomMapping>={}):Promise<ExtractedAsset[]>{
  const byPath=new Map(inputs.map(a=>[a.path,a]));
  const libraries=localLibraries(inputs);
@@ -25,7 +43,7 @@ export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputA
   catch(e){docs.set(path,{symbols:[],footprints:[],error:String(e)});}
  }
  const result:ExtractedAsset[]=[];
- for(const part of bundle.parts){
+ for(const part of assetParts(bundle)){
   const confirmed=Object.values(mappings).find(m=>['VERIFIED','CONFIRMED'].includes(m.status)&&m.selected&&m.query.references.includes(part.reference)&&(!part.footprint||m.query.footprint===part.footprint));
   const mpn=(confirmed?.selected?.mpn||part.mpnRaw||part.value||part.reference).trim();
   const manufacturer=(confirmed?.selected?.manufacturer||part.manufacturerRaw||'').trim();
@@ -94,7 +112,7 @@ export async function extractDesignAssets(bundle:CanonicalIrBundle,inputs:InputA
     if(matches.length===1){modelRefs.push({path:matches[0].path,offset:[0,0,0],scale:[1,1,1],rotation:[0,0,0],hidden:false});footprintAsset.warnings.push('模型按唯一同名本地文件关联；源封装未提供安装变换，装配位置须人工确认。');}
     else if(matches.length>1)footprintAsset.warnings.push('存在多个同名本地模型，未自动选择，请补充确认后的模型文件。');
    }
-   const source=byPath.get(path);let models:InputAsset[]=[];try{if(source)models=embeddedModels(source);}catch(e){warnings.push(String(e));}
+   const source=byPath.get(path)??byPath.get(pcb.sourceRefs[0]?.path??'');let models:InputAsset[]=[];try{if(source)models=embeddedModels(source);}catch(e){footprintAsset.warnings.push(String(e));}
    for(const model of modelRefs){
     const available=[...inputs,...models];let resolved=resolveModelPath(model.path,pcb,available);
     if(!resolved.asset&&library){const localPcb={...pcb,sourceRefs:[{...fp.sourceRef,path:library.source.path}]};const local=resolveModelPath(model.path,localPcb,available);if(local.asset)resolved=local;}

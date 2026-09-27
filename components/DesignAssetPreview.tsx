@@ -9,6 +9,7 @@ import { allDescendants,atom,childValue,directChildren,firstChild } from '../lib
 import { parseEdaProject } from '../lib/eda/parse';
 import { SchematicViewer,PcbViewer } from './EdaViewers';
 import { AssemblyScene } from './AssemblyScene';
+const pinTypeLabels:Record<string,string>={input:'输入',output:'输出',bidirectional:'双向',tri_state:'三态',passive:'无源',free:'自由',unspecified:'未指定',power_in:'电源输入',power_out:'电源输出',open_collector:'开集电极',open_emitter:'开射电极',no_connect:'不连接'};
 export function DesignAssetPreview({asset,active=true}:{asset:ExtractedAsset|AssetRecord;active?:boolean}){
  const [unit,setUnit]=useState(1);const [availableUnits,setAvailableUnits]=useState<number[]>([]);
  const [file,setFile]=useState<InputAsset>();const [bundle,setBundle]=useState<CanonicalIrBundle>();const [error,setError]=useState('');const [pins,setPins]=useState<Array<{number:string;name:string;type:string}>>([]);
@@ -37,7 +38,7 @@ export function DesignAssetPreview({asset,active=true}:{asset:ExtractedAsset|Ass
    return `(symbol (lib_id ${JSON.stringify('Extracted:'+symbolName)}) (at ${x} ${y} 0) (unit ${u}) (uuid "preview-${u}") ${properties})`;
   });
   text=`(kicad_sch (version 20250114) (lib_symbols ${defs}) ${instances.join(' ')})`;name='preview.kicad_sch';
-  setPins(allDescendants(body,'pin').map(p=>({number:childValue(p,'number')??'',name:childValue(p,'name')??'',type:atom(p.items[1])??''})));
+ setPins(allDescendants(body,'pin').map(p=>({number:childValue(p,'number')??'',name:childValue(p,'name')??'',type:atom(p.items[1])??'unspecified'})));
  }else{if(!firstChild(root,"at"))root.items.push(parse("(at 0 0 0)"));text=`(kicad_pcb (version 20240108) (layers (0 "F.Cu" signal) (31 "B.Cu" signal)) ${serialize(root)})`;name='preview.kicad_pcb';}
  const parsed=await parseEdaProject([{path:name,bytes:new TextEncoder().encode(text)}]);
  if(asset.kind==='symbol'){
@@ -59,9 +60,11 @@ export function DesignAssetPreview({asset,active=true}:{asset:ExtractedAsset|Ass
    if(!hidden(numberSettings))sch.texts!.push({id:'preview-number-'+i,text:childValue(p,'number')??'',kind:'PinNumber',position:{unit:"mm",x:String(x+dx*len/2+(vertical?-.6:0)),y:String(y+dy*len/2+(vertical?0:-.6))},rotation:vertical?'90':'0',size:fontSize('number'),align:'middle'});
    const label=childValue(p,'name');
    if(!hidden(nameSettings)&&label&&label!=='~')sch.texts!.push({id:'preview-name-'+i,text:label,kind:'PinName',position:{unit:"mm",x:String(x+dx*(len+offset)),y:String(y+dy*(len+offset))},rotation:vertical?'90':'0',size:fontSize('name'),align:vertical?(dy<0?'start':'end'):(dx>0?'start':'end')});
+   const type=atom(p.items[1])??'unspecified';
+   sch.texts!.push({id:'preview-pin-type-'+i,text:pinTypeLabels[type]??type,kind:'PinType',position:{unit:'mm',x:String(x+dx*(len+offset+3)),y:String(y+dy*(len+offset+3))},rotation:vertical?'90':'0',size:'0.85',align:vertical?(dy<0?'start':'end'):(dx>0?'start':'end')});
   });
  }
  if(!cancelled)setBundle(parsed);
  })().catch(e=>{if(!cancelled)setError(String(e));});return()=>{cancelled=true;};},[asset,unit]);
- return <article className={`design-preview design-preview-${asset.kind}`}><h4>{asset.kind==='symbol'?<Cpu/>:asset.kind==='footprint'?<CircuitBoard/>:<Box/>}{asset.kind==='symbol'?'元件符号':asset.kind==='footprint'?'PCB 封装图':'3D 模型'}</h4><div className="design-preview-name" title={asset.name}>{asset.name}</div><small>指纹 {asset.fingerprint.slice(0,16)} · {asset.origins.length} 个来源</small>{error?<p role="alert">{error}</p>:asset.kind==='model'?(file?<AssemblyScene asset={file} active={active} library/>:<p>正在加载模型…</p>):bundle?(asset.kind==='symbol'?<SchematicViewer bundle={bundle} library/>:<PcbViewer bundle={bundle} library/>):<p>正在加载预览…</p>}{availableUnits.length>1&&<label className="design-unit">符号单元 <select aria-label="符号单元" value={availableUnits.includes(unit)?unit:availableUnits[0]} onChange={e=>setUnit(Number(e.target.value))}>{availableUnits.map(u=><option value={u} key={u}>单元 {u}</option>)}</select></label>}{asset.warnings.some(w=>w.includes('Altium')||w.includes('安装变换'))&&<p className="design-preview-notice">{asset.warnings.filter(w=>w.includes('Altium')||w.includes('安装变换')).join(' ')}</p>}{pins.length>0&&<details><summary>管脚定义（{pins.length}）</summary><table><thead><tr><th>编号</th><th>名称</th><th>电气类型</th></tr></thead><tbody>{pins.map((p,i)=><tr key={i}><td>{p.number}</td><td>{p.name}</td><td>{p.type}</td></tr>)}</tbody></table></details>}</article>;
+ return <article className={`design-preview design-preview-${asset.kind}`}><h4>{asset.kind==='symbol'?<Cpu/>:asset.kind==='footprint'?<CircuitBoard/>:<Box/>}{asset.kind==='symbol'?'元件符号':asset.kind==='footprint'?'PCB 封装图':'3D 模型'}</h4><div className="design-preview-name" title={asset.name}>{asset.name}</div><small>指纹 {asset.fingerprint.slice(0,16)} · {asset.origins.length} 个来源</small>{error?<p role="alert">{error}</p>:asset.kind==='model'?(file?<AssemblyScene asset={file} active={active} library/>:<p>正在加载模型…</p>):bundle?(asset.kind==='symbol'?<SchematicViewer bundle={bundle} library/>:<PcbViewer bundle={bundle} library/>):<p>正在加载预览…</p>}{availableUnits.length>1&&<label className="design-unit">符号单元 <select aria-label="符号单元" value={availableUnits.includes(unit)?unit:availableUnits[0]} onChange={e=>setUnit(Number(e.target.value))}>{availableUnits.map(u=><option value={u} key={u}>单元 {u}</option>)}</select></label>}{asset.warnings.some(w=>w.includes('Altium')||w.includes('安装变换'))&&<p className="design-preview-notice">{asset.warnings.filter(w=>w.includes('Altium')||w.includes('安装变换')).join(' ')}</p>}{pins.length>0&&<details><summary>管脚定义（{pins.length}）</summary><table><thead><tr><th>编号</th><th>名称</th><th>电气类型</th></tr></thead><tbody>{pins.map((p,i)=><tr key={i}><td>{p.number}</td><td>{p.name}</td><td>{pinTypeLabels[p.type]??p.type}</td></tr>)}</tbody></table></details>}</article>;
 }

@@ -472,23 +472,6 @@ export default function EdaWorkbench() {
     return bundle.nets.length;
   };
 
-  const resultTabs: Array<{ id: ResultTab; label: string; count?: number }> = bundle
-    ? [
-        { id: "overview", label: "概览" },
-        { id: "knowledge", label: "知识挖掘 / 审核" },
-        { id: "inventory", label: "源文件", count: bundle.inventory.length },
-        { id: "project", label: "Project IR", count: 1 },
-        { id: "schematic", label: "原理图查看器", count: bundle.schematics.length },
-        { id: "pcb", label: "PCB 2D", count: bundle.pcbs.length },
-        { id: "3d", label: "3D", count: bundle.pcbs.length },
-        { id: "parts", label: "BOM", count: bundle.parts.length },
-        { id: "design-assets", label: "器件设计资产" },
-        { id: "nets", label: "Netlist", count: bundle.nets.length },
-        { id: "diagnostics", label: "诊断", count: bundle.diagnostics.length },
-        { id: "json", label: "IR JSON" },
-      ]
-    : [];
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -498,37 +481,24 @@ export default function EdaWorkbench() {
           <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><Clock3 size={18} /><span>工程记录</span>{savedProjects.length > 0 && <b>{savedProjects.length}</b>}</button>
           <button className={view === "adapters" ? "active" : ""} onClick={() => setView("adapters")}><Code2 size={18} /><span>适配器能力</span></button>
         </nav>
-        <div className="nav-caption">IR DOMAINS</div>
-        <div className="domain-list">
-          {DOMAIN_NAV.map((item) => (
-            <button
-              type="button"
-              className={bundle && view === "workspace" && activeTab === item.tab ? "active" : ""}
-              disabled={!bundle}
-              aria-label={`打开 ${item.label}`}
-              aria-current={bundle && view === "workspace" && activeTab === item.tab ? "page" : undefined}
-              title={bundle ? `查看并导出 ${item.label}` : "请先解析或打开一个工程"}
-              onClick={() => openDomain(item.tab)}
-              key={item.domain}
-            >
-              {item.domain === "project" ? <FileJson2 size={16} /> : item.domain === "schematic" ? <Zap size={16} /> : item.domain === "pcb" ? <CircuitBoard size={16} /> : item.domain === "part" ? <PackageCheck size={16} /> : <Network size={16} />}
-              <span>{item.label}</span>
-              {bundle && <b>{domainCount(item.domain)}</b>}
-            </button>
-          ))}
-        </div>
-        <div className="nav-caption viewer-caption">ONLINE VIEWERS</div>
+        <div className="nav-caption viewer-caption">工程内容</div>
         <div className="viewer-nav-list">
           {[
-            { tab: "knowledge" as ResultTab, label: "知识挖掘 / 审核", icon: <Sparkles size={16} />, count: undefined },
-            { tab: "schematic" as ResultTab, label: "原理图", icon: <Zap size={16} />, count: bundle?.schematics.length },
+            { tab: "overview" as ResultTab, label: "概览", icon: <CircleGauge size={16} /> },
+            { tab: "schematic" as ResultTab, label: "原理图", icon: <CircuitBoard size={16} />, count: bundle?.schematics.length },
             { tab: "pcb" as ResultTab, label: "PCB 2D", icon: <CircuitBoard size={16} />, count: bundle?.pcbs.length },
             { tab: "3d" as ResultTab, label: "PCB 3D", icon: <Box size={16} />, count: bundle?.pcbs.length },
             { tab: "parts" as ResultTab, label: "BOM", icon: <PackageCheck size={16} />, count: bundle?.parts.length },
+            { tab: "design-assets" as ResultTab, label: "器件设计资产", icon: <Layers3 size={16} /> },
             { tab: "nets" as ResultTab, label: "Netlist", icon: <Network size={16} />, count: bundle?.nets.length },
+            { tab: "knowledge" as ResultTab, label: "知识挖掘 / 审核", icon: <ShieldCheck size={16} /> },
+            { tab: "inventory" as ResultTab, label: "源文件", icon: <FileCode2 size={16} />, count: bundle?.inventory.length },
+            { tab: "project" as ResultTab, label: "Project IR", icon: <FileJson2 size={16} /> },
+            { tab: "diagnostics" as ResultTab, label: "诊断", icon: <AlertTriangle size={16} />, count: bundle?.diagnostics.length },
+            { tab: "json" as ResultTab, label: "IR JSON", icon: <FileJson2 size={16} /> },
           ].map((item) => (
             <button type="button" className={bundle && view === "workspace" && activeTab === item.tab ? "active" : ""} disabled={!bundle} onClick={() => openDomain(item.tab)} key={item.tab}>
-              {item.icon}<span>{item.label}</span>{bundle && <b>{item.count}</b>}
+              {item.icon}<span>{item.label}</span>{bundle && item.count !== undefined && <b>{item.count}</b>}
             </button>
           ))}
         </div>
@@ -598,10 +568,6 @@ export default function EdaWorkbench() {
               </div>
 
               {String(bundle.parser.adapterVersion) !== "1.6.0" && <p role="status" className="knowledge-note">此工程使用旧版解析结果。请重新导入原始工程文件，使用当前解析器重新处理。</p>}
-              <div className="result-tabs" role="tablist">
-                {resultTabs.map((tab) => <button role="tab" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)} key={tab.id}>{tab.label}{tab.count !== undefined && <span>{tab.count}</span>}</button>)}
-              </div>
-
               <div className="tab-content">
                 {activeDomain && (
                   <div className="ir-domain-toolbar">

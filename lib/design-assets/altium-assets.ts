@@ -17,7 +17,7 @@ export function altiumSymbol(bundle:CanonicalIrBundle,part:PartIr,name:string):I
   const pinNodes=pins.map(p=>{
    const a=local(p.position),b=local(p.bodyPosition!),angle=(Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI+360)%360;
    const length=Math.hypot(b.x-a.x,b.y-a.y);
-   return `(pin unspecified line (at ${n(a.x)} ${n(a.y)} ${n(angle)}) (length ${n(length)}) ${p.hidden?'hide':''} (name ${q(p.name||'~')} (effects (font (size 1.27 1.27)))) (number ${q(p.number)} (effects (font (size 1.27 1.27)))))`;
+   return `(pin ${p.electricalType||'unspecified'} line (at ${n(a.x)} ${n(a.y)} ${n(angle)}) (length ${n(length)}) ${p.hidden?'hide':''} (name ${q(p.name||'~')} (effects (font (size 1.27 1.27)))) (number ${q(p.number)} (effects (font (size 1.27 1.27)))))`;
   });
   bodies.push(`(symbol ${q(name+'_'+unit.unit+'_1')} ${graphics.join(' ')} ${pinNodes.join(' ')})`);
  }

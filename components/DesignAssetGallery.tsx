@@ -8,7 +8,7 @@ const columns = [{kind:'symbol',title:'元件符号',Icon:Cpu},{kind:'footprint'
 export function DesignAssetGallery({assets,active=true}:{assets:Asset[];active?:boolean}) {
  const [selected,setSelected]=useState<Record<string,string>>({});
  return <div className="design-comparison">{columns.map(({kind,title,Icon})=>{
-  const choices=assets.filter(a=>a.kind===kind);
+  const choices=assets.filter(a=>a.kind===kind).sort((a,b)=>Number(!!('file' in b && b.file)||!!b.fileHash)-Number(!!('file' in a && a.file)||!!a.fileHash));
   const asset=choices.find(a=>a.id===selected[kind])??choices[0];
   return <section className="design-gallery-column" key={kind} aria-label={title}>
    {<label className="design-variant">{choices.length>1?`选择版本（${choices.length}）`:"库文件"}<select aria-label={`${title}版本`} disabled={choices.length<2} value={asset?.id??""} onChange={e=>setSelected(old=>({...old,[kind]:e.target.value}))}>{choices.length===0&&<option value="">尚未关联</option>}{choices.map(a=><option key={a.id} value={a.id}>{a.name} · {a.fingerprint.slice(0,8)}</option>)}</select></label>}

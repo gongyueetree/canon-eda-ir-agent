@@ -24,6 +24,18 @@ export async function candidateFile(asset:ExtractedAsset|AssetRecord):Promise<In
   const size=chunks.reduce((n,c)=>n+c.length,0),bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
   if(await sha256(bytes)!==asset.fileHash)throw Error('FILE_HASH_MISMATCH');return {path:asset.fileName!,bytes};
  }
+ // The PCB 3D viewer loads official packages through this same-origin proxy.
+ // A library preview must not redirect the browser to a GitLab raw file.
+ if(asset.kind==='model'){
+  const path=asset.name.replace(/^\$\{(?:KICAD\d*_3DMODEL_DIR|KISYS3DMOD)\}\//,'');
+  if(/^[\w.-]+\.3dshapes\/[\w.+()-]+\.(?:step|stp|wrl)$/i.test(path)){
+   const query=new URLSearchParams({path});
+   if(asset.official?.revision&&['match','found'].includes(asset.official.status))query.set('revision',asset.official.revision);
+   const response=await fetch('/api/models/kicad?'+query);
+   if(!response.ok)throw Error(response.status===404?'KiCad 官方库没有此 3D 模型，请随工程补充文件':`KiCad 3D 模型服务暂不可用（HTTP ${response.status}）`);
+   return {path:path.split('/').at(-1)!,bytes:await boundedBody(response.body,20*1024*1024)};
+  }
+ }
  if(!asset.official){
   const checked=await json(await fetch('/api/design-assets/official',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify([{kind:asset.kind,name:asset.name}])}));
   const official=checked.results?.[0];

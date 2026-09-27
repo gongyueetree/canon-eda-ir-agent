@@ -67,7 +67,7 @@ const PARSE_STAGES = [
 ];
 
 const SUPPORT_MATRIX = [
-  { format: "KiCad 5–9+", level: "在线查看", tone: "ready", detail: "Sch / PCB / 3D IR Preview / BOM / Netlist" },
+  { format: "KiCad 5–10", level: "在线查看", tone: "ready", detail: "Sch / PCB / 3D IR Preview / BOM / Netlist" },
   { format: "EasyEDA 标准版", level: "在线查看", tone: "ready", detail: "JSON 多页 Sch / PCB / BOM / Netlist" },
   { format: "JLCEDA Pro", level: "在线查看", tone: "partial", detail: "EPro / ESch / EPCB 已映射对象在线显示" },
   { format: "Altium", level: "结构预览", tone: "planned", detail: "PrjPcb 元数据；二进制 CFB 几何适配中" },

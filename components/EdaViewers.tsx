@@ -211,7 +211,18 @@ export function SchematicViewer({ bundle, library = false }: { bundle: Canonical
               const part = partsById.get(pins[0].partId);
               return <g className="schematic-symbol" key={unitId}>{!(schematic.graphics ?? []).some(g => g.symbolUnitId === unitId) && <rect x={minX} y={minY} width={width} height={height} rx="3" />}<text x={minX + 7} y={minY + 14}>{part?.reference ?? pins[0].reference}</text><text className="symbol-value" x={minX + 7} y={minY + 27}>{part?.value ?? ""}</text></g>;
             })}
-            {(schematic.texts ?? []).filter(t=>showPinNumbers || t.kind!=="PinNumber").map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
+            {(schematic.texts ?? []).filter(t=>showPinNumbers || t.kind!=="PinNumber").map(t=>{const p=geometry.project(numericPoint(t.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;return <text key={t.id} className="schematic-source-text" x={p.x} y={p.y} textAnchor={t.align} dominantBaseline="central" transform={`rotate(${-Number(t.rotation)} ${p.x} ${p.y})`} style={{fontSize:Number(t.size)*scale,fill:t.kind==="Reference"||t.kind==="reference"?"#254238":"#69786e"}}>{t.text}</text>;})}
+            {bundle.parts.flatMap(part=>part.symbolUnits.filter(unit=>schematic.symbolInstanceIds.includes(unit.id)).flatMap(unit=>{
+              const fields=(schematic.texts??[]).filter(t=>t.symbolUnitId===unit.id);
+              // KiCad 10 projects commonly hide the instance Value property. The
+              // IR keeps that visibility, while the online viewer shows its value.
+              if(!fields.length || !part.value || fields.some(t=>t.kind.toLowerCase()==='value'))return [];
+              const reference=fields.find(t=>t.kind.toLowerCase()==='reference');
+              const anchor=numericPoint(reference?.position??unit.position);
+              if(!anchor)return [];
+              const p=geometry.project(anchor),size=Math.max(9,Number(reference?.size??1.27)*(geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x));
+              return [<text key={`${unit.id}:fallback-value`} className="schematic-source-text symbol-value" x={p.x} y={p.y+size*1.25} textAnchor={reference?.align??'start'} dominantBaseline="central" style={{fontSize:size,fill:'#69786e'}}>{part.value}</text>];
+            }))}
             {showPinNumbers && !schematic.texts?.some(t=>t.kind==="PinNumber") && schematic.pins.map((pin) => { const p = geometry.project(numericPoint(pin.position)!); return <g className="schematic-pin" key={pin.id}><circle cx={p.x} cy={p.y} r="3.4" /><text x={p.x + 5} y={p.y - 5}>{pin.number}</text></g>; })}
             {schematic.junctions.map((junction) => { const p = geometry.project(numericPoint(junction.position)!); return <circle className="schematic-junction" cx={p.x} cy={p.y} r="4.5" key={junction.id} />; })}
             {schematic.labels.filter((label,i,all)=>all.findIndex(other=>other.name===label.name && other.position.x===label.position.x && other.position.y===label.position.y)===i).map(label=>{const p=geometry.project(numericPoint(label.textPosition??label.position)!);const scale=geometry.project({x:1,y:0}).x-geometry.project({x:0,y:0}).x;const angle=((Number(label.rotation??0)%360)+360)%360;const left=angle===180;

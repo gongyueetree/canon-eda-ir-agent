@@ -97,6 +97,40 @@ test('missing local 3D reference resolves a pinned official model for preview',a
  try{const assets=await extractDesignAssets(await parseEdaProject(fixture()),fixture());const model=assets.find(a=>a.kind==='model')!;const file=await candidateFile({...model,file:undefined,fileHash:undefined,official:undefined});assert.match(new TextDecoder().decode(file.bytes),/^ISO-10303-21;/);assert.equal(calls.length,2);assert.ok(calls[1].includes('revision='+'a'.repeat(40)));}finally{globalThis.fetch=original;}
 });
 
+test('KiCad 10 hidden Value remains available and is shown next to its reference',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');const {SchematicViewer}=await import('../components/EdaViewers');
+ const text='(kicad_sch (version 20250114) (generator "eeschema") (generator_version "10.0") (embedded_fonts no) (lib_symbols (symbol "Device:C" (symbol "C_1_1" (pin passive line (at 0 2 270) (length 1) (name "~") (number "1")) (pin passive line (at 0 -2 90) (length 1) (name "~") (number "2")) (polyline (pts (xy -1 0.5) (xy 1 0.5)) (stroke (width 0.25) (type default)) (fill (type none)))))) (symbol (lib_id "Device:C") (at 40 50 0) (unit 1) (uuid "ki10-c2") (property "Reference" "C2" (at 44 49 0) (effects (font (size 1.27 1.27)))) (property "Value" "100n" (at 44 51 0) (effects (font (size 1.27 1.27)) (hide yes)))))';
+ const bundle=await parseEdaProject([{path:'kicad10.kicad_sch',bytes:enc.encode(text)}]);
+ assert.equal(bundle.parts[0].value,'100n');assert.equal(bundle.schematics[0].texts?.some(t=>t.kind==='Value'),false);assert.ok(!bundle.project.opaqueExtensions.some(n=>n.recordType==='embedded_fonts'));
+ const html=renderToStaticMarkup(<SchematicViewer bundle={bundle}/>);assert.match(html,/class="schematic-source-text symbol-value"[^>]*>100n<\/text>/);
+});
+
+test('KiCad 8 through 10 official 3D paths use the same-origin model proxy without a GitLab redirect',async()=>{
+ const {candidateFile}=await import('../lib/design-assets/client');const original=globalThis.fetch,calls:string[]=[];
+ const body=enc.encode('ISO-10303-21;\nEND-ISO-10303-21;');
+ globalThis.fetch=async input=>{calls.push(String(input));return new Response(body);};
+ try{
+  for(const version of [8,10]){
+   const model={...((await extractDesignAssets(await parseEdaProject(fixture()),fixture())).find(a=>a.kind==='model')!),file:undefined,fileHash:undefined,official:undefined,name:`\${KICAD${version}_3DMODEL_DIR}/Diode_SMD.3dshapes/D_SMA.step`};
+   const file=await candidateFile(model);assert.equal(file.path,'D_SMA.step');assert.deepEqual(file.bytes,body);
+  }
+  assert.ok(calls.every(url=>url.startsWith('/api/models/kicad?path=')&&!url.includes('/api/design-assets/official')));
+ }finally{globalThis.fetch=original;}
+});
+
+test('model proxy falls back to the KiCad GitHub mirror when GitLab is unavailable',async()=>{
+ const {GET}=await import('../app/api/models/kicad/route');const original=globalThis.fetch,calls:string[]=[];
+ globalThis.fetch=async url=>{calls.push(String(url));return calls.length===1?new Response('unavailable',{status:502}):new Response(enc.encode('ISO-10303-21;\nEND-ISO-10303-21;'));};
+ try{const r=await GET(new Request('https://example.com/api/models/kicad?path=Diode_SMD.3dshapes%2FD_SMA.step'));
+  assert.equal(r.status,200);assert.match(await r.text(),/^ISO-10303-21;/);
+  assert.ok(calls[0].includes('gitlab.com/kicad/libraries/kicad-packages3D'));
+  assert.ok(calls[1].includes('raw.githubusercontent.com/KiCad/kicad-packages3D'));
+  calls.length=0;globalThis.fetch=async url=>{calls.push(String(url));return calls.length===1?new Response('<html>challenge</html>'):new Response(enc.encode('ISO-10303-21;\nEND-ISO-10303-21;'));};
+  const html=await GET(new Request('https://example.com/api/models/kicad?path=Diode_SMD.3dshapes%2FD_SMA.step'));
+  assert.equal(html.status,200);assert.equal(calls.length,2);
+ }finally{globalThis.fetch=original;}
+});
+
 test('library gallery renders three slots, pin names, centered pads and clears a failed replacement',async()=>{
  const {JSDOM}=await import('jsdom');const {act}=await import('react');const {createRoot}=await import('react-dom/client');
  const {DesignAssetGallery}=await import('../components/DesignAssetGallery');

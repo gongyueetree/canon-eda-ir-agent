@@ -540,7 +540,7 @@ function parseSchematic(
   };
   const nets = buildConnectivity(schematic, pinAnchors, diagnostics);
   const knownHeads = new Set([
-    "version", "generator", "generator_version", "uuid", "paper", "lib_symbols", "junction", "wire", "bus", "bus_entry", "label", "global_label", "hierarchical_label", "symbol", "sheet", "sheet_instances", "symbol_instances", "no_connect", "text", "text_box", "image", "polyline", "arc", "circle", "rectangle", "bezier", "title_block", "bus_alias",
+    "version", "generator", "generator_version", "embedded_fonts", "embedded_files", "uuid", "paper", "lib_symbols", "junction", "wire", "bus", "bus_entry", "label", "global_label", "hierarchical_label", "symbol", "sheet", "sheet_instances", "symbol_instances", "no_connect", "text", "text_box", "image", "polyline", "arc", "circle", "rectangle", "bezier", "title_block", "bus_alias",
   ]);
   const unknown = directChildren(root).map((node) => head(node) ?? "unknown").filter((nodeHead) => !knownHeads.has(nodeHead));
   const recognized = symbolNodes.length + wires.length + junctions.length + labels.length + noConnects.length + pinAnchors.length;
@@ -1458,7 +1458,7 @@ function parsePcb(
     zones,
     sourceRefs: [fileRef],
   };
-  const knownHeads = new Set(["version", "generator", "generator_version", "general", "paper", "title_block", "layers", "setup", "net", "footprint", "module", "segment", "arc", "via", "zone", "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_text", "gr_text_box", "dimension", "target", "group", "image", "net_class", "property"]);
+  const knownHeads = new Set(["version", "generator", "generator_version", "embedded_fonts", "embedded_files", "general", "paper", "title_block", "layers", "setup", "net", "footprint", "module", "segment", "arc", "via", "zone", "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_text", "gr_text_box", "dimension", "target", "group", "image", "net_class", "property"]);
   const unknown = directChildren(root).map((node) => head(node) ?? "unknown").filter((nodeHead) => !knownHeads.has(nodeHead));
   const recognized = footprints.length + pads.length + tracks.length + vias.length + zones.length + layers.length + boardOutline.length;
   const normalized = recognized + pcbNets.length + constraints.length;

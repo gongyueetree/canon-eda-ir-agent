@@ -140,10 +140,16 @@ test('schematic and PCB select a part in their own inspector; PCB wheel zooms an
   const svg=document.querySelector('svg[role="img"]')!;svg.getBoundingClientRect=()=>({x:0,y:0,left:0,top:0,width:1200,height:720,right:1200,bottom:720,toJSON(){}});
   const wheel=new dom.window.WheelEvent('wheel',{clientX:600,clientY:360,deltaY:-200,bubbles:true,cancelable:true});await act(async()=>svg.dispatchEvent(wheel));
   assert.ok(wheel.defaultPrevented);assert.match(document.body.textContent!,/135%/);
-  await act(async()=>{(document.querySelector('.pcb-component-hit[data-reference="U1"]') as SVGElement).dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));});
+  const pcbHit=document.querySelector('.pcb-component-hit[data-reference="U1"]') as SVGElement;
+  let captured=0; (svg as SVGSVGElement).setPointerCapture=()=>{captured++;};
+  await act(async()=>{pcbHit.dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,button:0}));});
+  assert.equal(captured,0,'selecting a footprint must not trigger canvas pointer capture');
   assert.ok(document.querySelector('.component-inspector'));assert.match(document.body.textContent!,/下载该器件库 ZIP/);
   await act(async()=>root.render(<SchematicViewer bundle={bundle} assets={inputs}/>));
-  await act(async()=>{(document.querySelector('.schematic-component-hit[data-reference="U1"]') as SVGElement).dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));});
+  const schSvg=document.querySelector('svg[role="img"]') as SVGSVGElement;
+  schSvg.setPointerCapture=()=>{captured++;};
+  await act(async()=>{(document.querySelector('.schematic-component-hit[data-reference="U1"]') as SVGElement).dispatchEvent(new dom.window.MouseEvent('pointerdown',{bubbles:true,button:0}));});
+  assert.equal(captured,0,'selecting a symbol must not trigger canvas pointer capture');
   assert.ok(document.querySelector('.component-inspector'));assert.match(document.body.textContent!,/CHIP/);
  }finally{await act(async()=>root.unmount());dom.window.close();}
 });

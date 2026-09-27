@@ -136,6 +136,23 @@ test('two-point capacitor plates define the body boundary, without extending fie
  assert.equal(fields[0].position.x,fields[1].position.x);
 });
 
+test('AD connector with pins on both sides places its reference and value clear of the outgoing wires',async()=>{
+ const bytes=document([
+  '|HEADER=Protel',
+  '|RECORD=1|LibReference=Header|CurrentPartId=1|Location.X=100|Location.Y=100',
+  '|RECORD=34|OwnerIndex=0|Name=Designator|Text=J100|Location.X=120|Location.Y=100',
+  '|RECORD=41|OwnerIndex=0|Name=Comment|Text=Conn_2x05|Location.X=120|Location.Y=95',
+  '|RECORD=14|OwnerIndex=0|Location.X=90|Location.Y=90|Corner.X=110|Corner.Y=110',
+  '|RECORD=2|OwnerIndex=0|PinConglomerate=2|PinLength=10|Location.X=90|Location.Y=100|Designator=1',
+  '|RECORD=2|OwnerIndex=0|PinConglomerate=0|PinLength=10|Location.X=110|Location.Y=100|Designator=2',
+ ]);
+ const sch=(await parseEdaProject([{path:'header.SchDoc',bytes}])).schematics[0];
+ const fields=sch.texts!.filter(t=>t.kind==='reference'||t.kind==='value');
+ assert.equal(fields.length,2);
+ assert.ok(fields.every(t=>Number(t.position.y)<-110*.254));
+ assert.ok(fields.every(t=>t.align==='middle'&&Number(t.position.x)===100*.254));
+});
+
 test('AD embedded PCB model resolves to the same actual STEP asset as the board viewer',async()=>{
  const {zlibSync}=await import('fflate');const {embeddedModels,resolveModelPath}=await import('../lib/models/footprints');
  const c=CFB.utils.cfb_new();

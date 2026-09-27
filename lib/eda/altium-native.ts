@@ -65,24 +65,30 @@ function schematic(data: Uint8Array, asset: SourceAsset, out: KicadParseOutput) 
       if (text) sch.texts!.push({ id: rid, symbolUnitId: owner?.symbolUnits[0].id, text, kind: type === "34" ? "reference" : "value", position: p, rotation: String(num(r, "ORIENTATION") * 90), size: "1.5", align: "start" });
     } else if (!["1", "31", "41", "44", "45", "46", "48"].includes(type)) unsupported.set(type, (unsupported.get(type) || 0) + 1);
   });
-  // AD field coordinates often share a symbol's body or pin wiring. Position
-  // both visible properties together beside the actual drawn body.
+  // AD field coordinates often share the body or pin wiring. Place fields
+  // beside small two-terminal symbols and above connectors with pins on both
+  // sides, where a right-side field would sit directly on the outgoing wires.
   for (const part of components.values()) {
     const unit = part.symbolUnits[0], pins=sch.pins.filter(p=>p.symbolUnitId===unit.id);
     const graphics = sch.graphics!.filter(g => g.symbolUnitId === unit.id && !pins.some(pin=>
       g.points.length===2 && [pin.bodyPosition,pin.position].every((point,i)=>point?.x===g.points[i]?.x&&point?.y===g.points[i]?.y)));
     const bodyPoints=graphics.flatMap(g=>g.points);
     if(!bodyPoints.length)bodyPoints.push(...pins.map(pin=>pin.bodyPosition??pin.position));
-    const bodyRight = Math.max(Number(unit.position?.x ?? 0), ...bodyPoints.map(p => Number(p.x)));
+    if(!bodyPoints.length&&unit.position)bodyPoints.push(unit.position);
+    const bodyLeft=Math.min(...bodyPoints.map(p=>Number(p.x)));
+    const bodyRight = Math.max(...bodyPoints.map(p => Number(p.x)));
     const ys=bodyPoints.map(p=>Number(p.y));
-    const centerY=ys.length?(Math.min(...ys)+Math.max(...ys))/2:Number(unit.position?.y??0);
-    const right = bodyRight + 1.2;
+    const top=Math.min(...ys),centerY=(top+Math.max(...ys))/2;
+    const leftPins=pins.some(pin=>pin.bodyPosition&&Number(pin.bodyPosition.x)<=bodyLeft+.7&&Number(pin.position.x)<Number(pin.bodyPosition.x)-.2);
+    const rightPins=pins.some(pin=>pin.bodyPosition&&Number(pin.bodyPosition.x)>=bodyRight-.7&&Number(pin.position.x)>Number(pin.bodyPosition.x)+.2);
+    const connector=leftPins&&rightPins;
     for (const [kind, value, dy] of [["reference", part.reference, -1.25], ["value", part.value, 1.25]] as const) {
       if (!value || value === "?") continue;
       const existing = sch.texts!.find(t => t.symbolUnitId === unit.id && t.kind === kind);
+      const fieldPosition=connector?pt((bodyLeft+bodyRight)/2,top+(kind==='reference'?-4.25:-1.9)):pt(bodyRight+.65,centerY+dy);
       if (existing) {
-        existing.position = pt(right, centerY + dy);existing.rotation = "0";existing.align='start';
-      } else sch.texts!.push({ id: `${unit.id}:${kind}`, symbolUnitId: unit.id, text: value, kind, position: pt(right, centerY + dy), rotation: "0", size: "1.5", align: "start" });
+        existing.position = fieldPosition;existing.rotation = "0";existing.align=connector?'middle':'start';
+      } else sch.texts!.push({ id: `${unit.id}:${kind}`, symbolUnitId: unit.id, text: value, kind, position: fieldPosition, rotation: "0", size: "1.5", align: connector?'middle':'start' });
     }
   }
   out.schematics.push(sch);

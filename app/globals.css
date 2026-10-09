@@ -620,3 +620,47 @@ td code { color: #718078; font-size: 8px; }
 .design-group > .design-gallery { margin-bottom:0; }
 
 .design-preview-notice { font-size:12px; color:#876327; line-height:1.5; background:#fff9e9; padding:8px; border-radius:6px; }
+
+
+/* ezPLM catalog: one navigation entry, category tree, paged cards and inline details. */
+.catalog-workbench { color:#29473d; }
+.catalog-heading { display:flex;justify-content:space-between;gap:20px;align-items:start;margin:12px 0 24px; }
+.catalog-heading h1 { font-size:28px;margin:10px 0; }
+.catalog-heading p,.catalog-login p { color:#718078;font-size:13px;line-height:1.7; }
+.catalog-login { max-width:460px;background:white;border:1px solid var(--line);border-radius:12px;padding:26px;display:grid;gap:16px; }
+.catalog-login h2 { margin:0;font-size:19px; }
+.catalog-login label { display:grid;gap:8px;font-size:13px; }
+.catalog-login input,.catalog-search input { border:1px solid var(--line);border-radius:6px;background:white;padding:11px;font:inherit;min-width:0; }
+.catalog-login small { color:#718078;line-height:1.6; }
+.catalog-search { display:flex;align-items:center;gap:12px;margin-bottom:20px; }
+.catalog-search input { flex:1; }
+.catalog-layout { display:grid;grid-template-columns:190px minmax(0,1fr);gap:20px;align-items:start; }
+.catalog-layout.with-detail { grid-template-columns:170px minmax(0,1fr) 310px; }
+.catalog-categories { padding:12px;background:white;border:1px solid var(--line);border-radius:10px;max-height:70vh;overflow:auto; }
+.catalog-categories h2 { font-size:13px;margin:8px 12px 12px; }
+.catalog-categories button { width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;padding:10px 12px;border:0;background:transparent;border-radius:6px;color:inherit;cursor:pointer;font-size:12px; }
+.catalog-categories button[aria-pressed="true"] { background:#eaf2e5;color:#216846;font-weight:600; }
+.catalog-categories small { color:#718078; }
+.catalog-results>p { font-size:12px;color:#718078;margin:0 0 14px; }
+.catalog-cards { display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:18px; }
+.catalog-card { padding:18px;text-align:left;background:white;border:1px solid var(--line);border-radius:10px;cursor:pointer;color:inherit;min-width:0; }
+.catalog-card:hover,.catalog-card[aria-pressed="true"] { border-color:#68a383;background:#f7fbf6; }
+.catalog-card h3 { font-size:14px;overflow-wrap:anywhere;margin:12px 0 8px; }
+.catalog-card p { font-size:12px;color:#718078;line-height:1.6;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden; }
+.catalog-card span { font-size:11px;color:#3e8059; }
+.catalog-detail { background:white;border:1px solid var(--line);border-radius:10px;padding:18px;overflow-wrap:anywhere; }
+.catalog-detail-title { display:flex;gap:8px;justify-content:space-between;align-items:start; }
+.catalog-detail-title h2 { font-size:17px;margin:0; }
+.catalog-detail-title button { border:0;background:transparent;cursor:pointer;color:inherit; }
+.catalog-detail p { font-size:12px;line-height:1.7; }
+.catalog-note { display:block;color:#718078;font-size:11px;line-height:1.7;margin:12px 0; }
+.catalog-source-list>div { display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:12px 0; }
+.catalog-source-list label { display:flex;align-items:start;gap:9px;font-size:12px; }
+.catalog-source-list small { display:block;color:#718078;margin-top:4px; }
+.catalog-detail>a,.catalog-preview-links a { font-size:12px;color:#3e8059; }
+.catalog-preview-links { display:flex;flex-wrap:wrap;gap:12px;margin:14px 0; }
+.catalog-detail>.primary-button,.catalog-detail>.ghost-button { width:100%;margin:5px 0;justify-content:center; }
+.catalog-empty { padding:30px;text-align:center; }
+.catalog-workbench button:disabled { opacity:.55;cursor:default; }
+@media(max-width:1150px) { .catalog-layout.with-detail { grid-template-columns:160px minmax(0,1fr); }.catalog-detail { grid-column:2;grid-row:1; }.catalog-layout.with-detail .catalog-results { grid-column:2; }.catalog-layout.with-detail .catalog-categories { grid-row:1 / span 2; } }
+@media(max-width:650px) { .catalog-layout,.catalog-layout.with-detail { display:flex;flex-direction:column; }.catalog-categories,.catalog-results,.catalog-detail { width:100%;box-sizing:border-box; }.catalog-categories { max-height:220px; }.catalog-detail { order:-1; }.catalog-heading { flex-direction:column; } }

@@ -43,9 +43,11 @@ import type { CanonicalIrBundle, ParseDiagnostic } from "../lib/eda/types";
 import { Board3DViewer, NetlistToolbar, PcbViewer, SchematicViewer } from "./EdaViewers";
 import { DesignAssetWorkbench } from "./DesignAssetWorkbench";
 import { KeepAlivePanel } from "./KeepAlivePanel";
+import { OpenSourceCatalog } from "./OpenSourceCatalog";
+import type { CatalogProvenance } from "../lib/catalog/types";
 
 type ResultTab = "design-assets" | "knowledge" | "overview" | "inventory" | "project" | "schematic" | "pcb" | "3d" | "parts" | "nets" | "diagnostics" | "json";
-type AppView = "workspace" | "history" | "adapters";
+type AppView = "workspace" | "history" | "adapters" | "catalog";
 type SavedProject = {
   id: string;
   name: string;
@@ -214,7 +216,7 @@ function MetricCard({ label, value, detail, accent }: { label: string; value: st
   );
 }
 
-function EmptyState({ onDemo, onUpload }: { onDemo: () => void; onUpload: () => void }) {
+function EmptyState({ onDemo, onUpload, onCatalog }: { onDemo: () => void; onUpload: () => void; onCatalog: () => void }) {
   return (
     <section className="empty-hero">
       <div className="eyebrow"><span>Agent 16</span> · deterministic parser</div>
@@ -224,6 +226,7 @@ function EmptyState({ onDemo, onUpload }: { onDemo: () => void; onUpload: () => 
       </p>
       <div className="hero-actions">
         <button className="primary-button" onClick={onUpload}><HardDriveUpload size={18} /> 上传工程</button>
+        <button className="ghost-button" onClick={onCatalog}><FolderOpen size={17} /> 浏览开源工程</button>
         <button className="ghost-button" onClick={onDemo}><Sparkles size={17} /> 载入演示工程</button>
       </div>
       <div className="trust-line">
@@ -292,7 +295,7 @@ export default function EdaWorkbench() {
     };
   }, []);
 
-  const runParse = async (files: File[]) => {
+  const runParse = async (files: File[], catalogSource?: CatalogProvenance) => {
     const runId = ++parseRunIdRef.current;
     setError(null);
     setBundle(null);
@@ -328,6 +331,10 @@ export default function EdaWorkbench() {
       setParseStage(7);
       await new Promise((resolve) => setTimeout(resolve, 110));
       if (runId !== parseRunIdRef.current) return;
+      if (catalogSource) {
+        if (!result.schematics.length && !result.pcbs.length) throw new Error("所选文件未解析出原理图或 PCB。请补充完整源工程，详情见原文件格式说明。");
+        result.project.settings = { ...result.project.settings, catalogSource };
+      }
       setSourceAssets(intake.assets);
       setBomMappings(result.bomMappings ?? {});
       setBundle(result);
@@ -478,6 +485,7 @@ export default function EdaWorkbench() {
         <div className="brand-mark"><span><Waypoints size={19} /></span><div>CANON<small>EDA IR AGENT</small></div></div>
         <nav className="main-nav" aria-label="主导航">
           <button className={view === "workspace" ? "active" : ""} onClick={() => setView("workspace")}><CircleGauge size={18} /><span>解析工作台</span></button>
+          <button className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}><FolderOpen size={18} /><span>开源工程库</span></button>
           <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><Clock3 size={18} /><span>工程记录</span>{savedProjects.length > 0 && <b>{savedProjects.length}</b>}</button>
           <button className={view === "adapters" ? "active" : ""} onClick={() => setView("adapters")}><Code2 size={18} /><span>适配器能力</span></button>
         </nav>
@@ -510,7 +518,7 @@ export default function EdaWorkbench() {
 
       <main className="main-stage">
         <header className="topbar">
-          <div className="breadcrumb"><input aria-label="工作区访问密钥" type="password" placeholder="工作区密钥（仅内存保存）" onChange={event => setApiToken(event.target.value)} onBlur={() => void refreshProjects()} style={{maxWidth:240, padding:8, border:"1px solid #ced8d3",borderRadius:6}} /><span>ezPLM</span><ChevronRight size={14} /><strong>{view === "workspace" ? bundle?.project.name ?? "新建解析" : view === "history" ? "工程记录" : "适配器能力"}</strong></div>
+          <div className="breadcrumb"><input aria-label="工作区访问密钥" type="password" placeholder="工作区密钥（仅内存保存）" onChange={event => setApiToken(event.target.value)} onBlur={() => void refreshProjects()} style={{maxWidth:240, padding:8, border:"1px solid #ced8d3",borderRadius:6}} /><span>ezPLM</span><ChevronRight size={14} /><strong>{view === "workspace" ? bundle?.project.name ?? "新建解析" : view === "catalog" ? "开源工程库" : view === "history" ? "工程记录" : "适配器能力"}</strong></div>
           <div className="top-actions">
             {bundle && view === "workspace" && (
               <>
@@ -530,6 +538,7 @@ export default function EdaWorkbench() {
         <input ref={directoryInputRef} type="file" multiple hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void runParse(files); }} />
 
         <div className="content-area">
+          {view === "catalog" && <OpenSourceCatalog onImport={runParse} />}
           {view === "workspace" && !bundle && !isParsing && (
             <div
               className={`drop-surface ${isDragging ? "dragging" : ""}`}
@@ -538,7 +547,7 @@ export default function EdaWorkbench() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={(event) => { event.preventDefault(); setIsDragging(false); void runParse(Array.from(event.dataTransfer.files)); }}
             >
-              <EmptyState onDemo={() => void runParse(createDemoFiles())} onUpload={() => fileInputRef.current?.click()} />
+              <EmptyState onCatalog={() => setView("catalog")} onDemo={() => void runParse(createDemoFiles())} onUpload={() => fileInputRef.current?.click()} />
               <div className="drop-hint"><Archive size={19} /><span>拖入 ZIP、工程文件或</span><button onClick={() => directoryInputRef.current?.click()}>选择工程目录</button><small>单文件 50 MB · 解压后 200 MB · 不支持嵌套执行</small></div>
               {error && <div className="inline-error"><AlertTriangle size={17} />{error}</div>}
             </div>
@@ -820,3 +829,4 @@ export default function EdaWorkbench() {
     </div>
   );
 }
+

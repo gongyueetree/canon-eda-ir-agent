@@ -247,3 +247,8 @@ Local verification without publishing engineering files:
 结果页新增 **器件设计资产**：按厂商 + 明确 MPN 提取 KiCad 符号/封装和随附/嵌入模型，逐项核对 KiCad 官方库，同内容合并来源，不同内容并列预览，由编辑确认入库。支持多工程 ZIP 与 `npm run assets:batch`；数据库沿用现有工作区权限，候选不会自动发布。
 
 使用步骤、格式边界、存储结构和批处理命令见 [设计资产说明](docs/design-assets.md)。数据库迁移：[0003_design_assets.sql](migrations/0003_design_assets.sql)。
+
+
+### ezPLM 开源工程库
+
+左侧“开源工程库”支持按分类/子分类浏览、关键词搜索和游标分页，选择工程源链接后直接进入现有 IR 解析工作台。支持公开 GitHub 仓库固定提交快照与允许域名的工程文件；只有查看器链接时可补充源文件。配置及接口边界见 [ezPLM 目录接入说明](docs/ezplm-catalog.md)。需配置 `EZPLM_CATALOG_API_BASE` 并由用户连接 ezPLM 账号，不能复用 BOM 查询 API Key。

@@ -24,11 +24,13 @@ test("server-renders the Canonical EDA IR workbench", async () => {
   assert.match(html, /可验证的统一数据/);
   assert.match(html, /不把工程发送给模型/);
   assert.match(html, /Project IR/);
-  assert.match(html, /aria-label="打开 Project IR"/);
-  assert.match(html, /ONLINE VIEWERS/);
+  assert.match(html, /aria-label="主导航"/);
+  assert.match(html, /开源工程库/);
+  assert.match(html, /浏览开源工程/);
+  assert.match(html, /工程内容/);
   assert.match(html, /PCB 3D/);
   assert.match(html, /Netlist/);
-  assert.match(html, /KiCad 5–9\+/);
+  assert.match(html, /KiCad 5–10/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
@@ -44,3 +46,4 @@ test("database status endpoint degrades safely without DATABASE_URL", async () =
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { configured: false, projects: [] });
 });
+
